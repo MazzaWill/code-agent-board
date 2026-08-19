@@ -45,7 +45,19 @@ export function parseGrokOutput(text) {
     if (!fallback.err) data = fallback.value;
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    return { status: 'parse_error', reason: 'grok envelope had neither structuredOutput nor parseable text' };
+    // Carry across what the envelope already told us. Measured case: stopReason
+    // "cancelled", structuredOutput null, structuredOutputError "model did not produce
+    // structured output", and a .text holding two concatenated JSON objects. Every one of
+    // those is diagnostic, and all of it was being thrown away in favour of a message that
+    // sent the reader digging through the transcript.
+    const detail = [
+      typeof env.structuredOutputError === 'string' ? `grok said: ${env.structuredOutputError}` : null,
+      typeof env.stopReason === 'string' ? `stopReason=${env.stopReason}` : null,
+    ].filter(Boolean).join('; ');
+    return {
+      status: 'parse_error',
+      reason: `grok envelope had neither structuredOutput nor parseable text${detail ? ` (${detail})` : ''}`,
+    };
   }
   const v = validateVerdict(data);
   if (!v.ok) return { status: 'parse_error', reason: v.reason };

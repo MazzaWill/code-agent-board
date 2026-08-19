@@ -554,6 +554,21 @@ that reviewer actually worked — a factor of 15 to 40. Together with the elapse
 recorded in each transcript, that is the cheapest available signal that a reviewer did not
 read the brief. Neither number appears in the verdict itself.
 
+A third form turned up while verifying the backport, and it differs from the first two in
+the way that matters: **cost and elapsed time were both normal.** grok ran for 269.8s and
+spent $0.07 — it did the work — then returned `stopReason: "cancelled"` with
+`structuredOutput: null`, self-reporting `structuredOutputError: "model did not produce
+structured output"`, while `.text` held **two concatenated JSON objects** (the first ended
+at character 540).
+
+So "watch the cost and the elapsed time" is not a complete tell — it catches a reviewer
+that did no work, not one that worked and failed to produce structured output. What
+actually caught this was the parsing layer: `parse_error`, therefore `inconclusive`, with
+no guessing and no half-verdict counted as a vote. The error message now carries
+`structuredOutputError` and `stopReason` through, so the diagnosis no longer requires
+opening the transcript.
+
+
 **The other reviewer found real defects in all four rounds**, including in every previous
 round's fixes. Fourteen in total across the four rounds, every one verified by hand before
 being accepted.

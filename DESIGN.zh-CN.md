@@ -484,6 +484,17 @@ schema 校验够不到这一层——而这正是 SKILL.md 那条铁律（采纳
 加上现在每份原文头部记录的耗时，这是判断「评审员没读 brief」最便宜的信号。这两个数字都
 不出现在裁决本身里。
 
+第三种形式在回灌验证时撞到，和前两种关键区别是**成本和耗时都正常**：grok 跑了 269.8 秒、
+花了 $0.07（真干了活），但返回 `stopReason: "cancelled"`、`structuredOutput: null`，自报
+`structuredOutputError: "model did not produce structured output"`，而 `.text` 里塞的是
+**两个拼接在一起的 JSON**（第一个在 540 字符处就结束了）。
+
+所以「看成本和耗时」这个破绽并非万能——它抓得住没干活的，抓不住干了活却没能产出结构化输出的。
+真正兜住的是解析层：board 判 `parse_error` → 整轮 `inconclusive`，没有猜、没有把半份裁决
+当成一票。错误消息现在会把 `structuredOutputError` 和 `stopReason` 一并带出来，省掉翻原文
+那一步。
+
+
 **另一位评审员四轮都找出了真缺陷**，包括每一轮修复里的。四轮共 14 条，每条都经人工核实
 后才采纳。
 

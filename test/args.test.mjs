@@ -111,11 +111,22 @@ test('a --repo path that does not exist is explained', async () => {
   assert.doesNotMatch(r.stderr, /crashed/);
 });
 
-test('a normal repository still works', () => {
-  const r = runStat(ROOT);
-  assert.equal(r.status, 0);
+test('a normal repository still works', async () => {
+  // Build a repository rather than using ROOT. This checkout is not necessarily a
+  // repository root — inside a multi-skill monorepo it is a subdirectory, which --repo
+  // now correctly refuses. The assumption was invisible until the code was vendored into
+  // exactly such a monorepo.
+  const dir = await mkdtemp(join(tmpdir(), 'board-normal-'));
+  execFileSync('git', ['-C', dir, 'init', '-q']);
+  await writeFile(join(dir, 'a.txt'), 'x\n');
+  execFileSync('git', ['-C', dir, 'add', '-A']);
+  execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'i']);
+  await writeFile(join(dir, 'a.txt'), 'y\n');
+
+  const r = runStat(dir);
+  assert.equal(r.status, 0, r.stderr);
   const stat = JSON.parse(r.stdout);
-  assert.equal(typeof stat.dirty, 'boolean');
+  assert.equal(stat.dirty, true);
   assert.equal(typeof stat.changedLines, 'number');
 });
 
