@@ -248,9 +248,11 @@ Your diff, plus the full contents of untracked files that are not gitignored, go
 OpenAI and xAI.
 
 board does not put these into the brief: gitignored files, the targets of symlinks (never
-followed), binaries, and files whose names look like secrets (`.env*`, `*.pem`, `*.key`,
-`secrets.*`, `id_rsa*`, `*credentials*`, …). Skipped files are listed as skipped rather
-than silently dropped, so the reviewers know something is there.
+followed), binaries, and files whose names look like secrets (`.env*`, key and keystore
+extensions, ssh key names, anything containing `credentials` — the exact pattern lives in
+[`scripts/brief.mjs`](scripts/brief.mjs) and [SECURITY.md](SECURITY.md) explains it).
+Skipped files are listed as skipped rather than silently dropped, so the reviewers know
+something is there.
 
 **But "not in the brief" is not "unreachable".** The reviewers are agents with the
 repository as their working directory, and the prompts encourage them to read files for
@@ -270,11 +272,22 @@ Everything lives in [`config/reviewers.json`](config/reviewers.json):
   change it here; the doctor will tell you, by name, when this is the problem.
 - **reasoning effort** — `xhigh`. If you lower it, lower `timeoutMs` with it (the note in
   the file explains why).
-- **adding a third reviewer** — add an entry with its `args` and a `probe` block. A CLI
-  whose output shape differs from the two supported ones also needs a parser in
-  `scripts/verdict.mjs`.
+- **adding a third reviewer** — add an entry with its `args` and a `probe` block. The
+  roster is validated before anything is spawned, so a bad one costs you nothing:
+  - ids must be distinct (compared case-insensitively) and usable as a filename — they
+    name the artifacts, and `../../../package` would resolve out of the artifact directory
+  - the roster must span at least two **vendors**. A roster where every entry reaches the
+    same provider is one model reviewing twice, not cross-verification. (A third entry
+    from a vendor already present is fine — the check is on the roster as a whole.) Vendor
+    defaults to the binary name, so set an explicit `vendor` field when two entries share
+    a binary but reach different providers.
+  - a CLI whose output shape differs from the two supported ones (bare JSON, or an
+    envelope with `structuredOutput`) also needs a parser in `scripts/verdict.mjs`
 
-`BOARD_HOME` overrides skill-root detection. `--lang zh-CN` gets you reviews in Chinese.
+`BOARD_HOME` tells the skill protocol where board is installed, for locations the probe in
+SKILL.md would not find. It does **not** redirect which config a script reads — every
+script resolves its own directory from `import.meta.url`. `--lang zh-CN` gets you reviews
+in Chinese.
 
 ## Artifacts
 

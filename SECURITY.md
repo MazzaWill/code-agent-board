@@ -18,8 +18,21 @@ that means.
 | gitignored files | `git ls-files --others --exclude-standard` never lists them |
 | symlink targets | `lstat`, never `stat` — symlinks are skipped, never followed |
 | binaries | matched by extension and listed by name only |
-| secret-looking filenames | `.env*`, `*.pem`, `*.key`, `*.p12`, `id_rsa*`, `*credentials*`, `secrets.*`, `.netrc`, `.npmrc` |
+| secret-looking filenames | see below |
 | anything past 64 KiB of a single untracked file | read with a bounded `read()`, never a full slurp |
+
+The secret-filename patterns cover, in outline: `.env*` (including `.envrc`), `.netrc`,
+`.npmrc`, `.pgpass`, anything starting `secret` / `secrets`, private-key and keystore
+extensions (`.pem` `.key` `.p12` `.pfx` `.jks` `.keystore`), ssh private key names
+(`id_rsa*`, `id_dsa*`, `id_ecdsa*`, `id_ed25519*`), and anything containing `credentials`.
+
+**The authoritative definition is the `SENSITIVE` pattern in
+[`scripts/brief.mjs`](scripts/brief.mjs)** — the paragraph above paraphrases it, and a
+paraphrase is exactly the kind of second source of truth that drifts. It already did once:
+an earlier version of this page promised `.env*` while the pattern matched only `.env` and
+`.env.<something>`, so `.envrc` and `secrets.txt` were being sent in full. If you need
+certainty about a specific filename, read the pattern, or check that the file appears as
+skipped in `<repo>/.claude/board/round-N/brief.md` after a round.
 
 Every exclusion is **visible**: the file is listed in the brief with the reason it was
 skipped. A silent omission would leave the reviewers reasoning about something they cannot

@@ -100,3 +100,19 @@ test('an empty vendor is rejected rather than counted as a distinct one', () => 
   assert.equal(r.ok, false);
   assert.match(r.reason, /no vendor/);
 });
+
+test('the vendor rule applies to the roster as a whole, not to each pair', () => {
+  // A third entry from a vendor already on the roster is fine — what must not happen is a
+  // roster that spans only one vendor. Pinned because the README describes this rule and
+  // the wording is easy to read the other way.
+  assert.equal(
+    validateReviewerConfig([rv('codex', 'codex'), rv('grok', 'grok'), rv('codex2', 'codex')]).ok,
+    true,
+    'two vendors across three entries is a valid roster',
+  );
+  assert.equal(
+    validateReviewerConfig([rv('a', 'codex'), rv('b', 'codex'), rv('c', 'codex')]).ok,
+    false,
+    'three entries from one vendor is still one model reviewing three times',
+  );
+});
