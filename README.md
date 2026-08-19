@@ -304,7 +304,8 @@ precisely so it can be tested without ever calling a CLI; the suite costs nothin
 and needs no API key.
 
 Design reasoning: [DESIGN.md](DESIGN.md) · Security: [SECURITY.md](SECURITY.md) ·
-Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
+Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) ·
+Code of conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
 ## Credits
 

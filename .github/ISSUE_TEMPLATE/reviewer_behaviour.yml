@@ -1,0 +1,56 @@
+name: Reviewer behaved oddly
+description: A reviewer returned something that was not a real review
+labels: ["reviewer-behaviour"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This has its own template because it is a known and recurring failure mode, and
+        because the useful evidence is not the same as for an ordinary bug.
+
+        A reviewer can **degrade rather than fail**: no timeout, no error, no refusal —
+        just an answer it did not arrive at. Two forms have been observed (DESIGN.md §13):
+        an empty verdict, and "I need to read more context first" filed as a blocking item
+        with all fields populated. The second is structurally indistinguishable from a real
+        finding; no schema check can catch it.
+
+        The tells are **cost and elapsed time**, neither of which appears in the verdict.
+
+  - type: input
+    id: reviewer
+    attributes:
+      label: Which reviewer
+      placeholder: "codex / gpt-5.6-sol"
+    validations:
+      required: true
+
+  - type: input
+    id: elapsed
+    attributes:
+      label: Elapsed time
+      description: From the `Elapsed:` line at the top of that reviewer's transcript.
+    validations:
+      required: true
+
+  - type: input
+    id: cost
+    attributes:
+      label: Reported cost, if any
+      description: From the summary table. codex does not report cost.
+
+  - type: input
+    id: brief-size
+    attributes:
+      label: Brief size
+      description: "`wc -c <repo>/.claude/board/round-N/brief.md` — degradation has correlated with large briefs."
+    validations:
+      required: true
+
+  - type: textarea
+    id: verdict
+    attributes:
+      label: The verdict it returned
+      description: From `<repo>/.claude/board/round-N/results.json`, that reviewer's entry.
+      render: json
+    validations:
+      required: true

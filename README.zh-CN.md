@@ -248,7 +248,8 @@ npm run doctor
 格式化都写成纯函数，正是为了不调用 CLI 就能测；整套测试不花一分钱，也不需要 API key。
 
 设计依据：[DESIGN.zh-CN.md](DESIGN.zh-CN.md) · 安全：[SECURITY.md](SECURITY.md) ·
-贡献：[CONTRIBUTING.md](CONTRIBUTING.md)
+贡献：[CONTRIBUTING.md](CONTRIBUTING.md) ·
+行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
 ## 致谢
 

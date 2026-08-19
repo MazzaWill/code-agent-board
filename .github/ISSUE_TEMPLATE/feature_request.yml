@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest something board should do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Worth knowing before you write: this project has explicit non-goals (DESIGN.md §1)
+        — no automatic triggering, reviewers never edit code, and no chasing reviewer
+        count. It also has a hard rule of zero third-party dependencies.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve
+      description: Please describe the situation, not the solution you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      options:
+        - label: This does not require a third-party dependency
+        - label: I have read the non-goals in DESIGN.md §1

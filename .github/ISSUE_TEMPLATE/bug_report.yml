@@ -1,0 +1,67 @@
+name: Bug report
+description: Something in board does not behave as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please run `npm run doctor` — it catches most setup problems and
+        its output tells us a lot.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `npm run doctor`
+      description: Paste it verbatim. Redact anything you would rather not share.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Which mode
+      options:
+        - code (default)
+        - plan (--mode plan)
+        - not applicable
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary-table
+    attributes:
+      label: The round's summary table, if a meeting ran
+      description: |
+        From `<repo>/.claude/board/round-N/summary.md`. The per-reviewer elapsed times in
+        the transcript headers are often the most informative part — a reviewer that
+        answered a large brief in seconds did not read it.
+      render: text
+
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: "Output of: node --version && git --version && codex --version && grok --version"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows (WSL)
+        - Windows (native — currently unsupported)
+    validations:
+      required: true
