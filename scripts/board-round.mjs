@@ -135,6 +135,12 @@ function runReviewer(rv, ctx) {
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
 
+    // EPIPE on stdin is expected and harmless: a reviewer may exit without draining the
+    // prompt, and we close the pipe ourselves in settle(). Without a listener that error
+    // is unhandled and takes the whole process down with exit code 1 — which is exactly
+    // what happened on Linux while macOS, with different timing, stayed green.
+    child.stdin?.on('error', () => {});
+
     let settled = false;
     let graceTimer = null;
     const settle = (result) => {
@@ -142,6 +148,10 @@ function runReviewer(rv, ctx) {
       settled = true;
       clearTimeout(timer);
       if (graceTimer) clearTimeout(graceTimer);
+
+      // Write the record BEFORE touching the pipes. Tearing them down is the step most
+      // likely to misbehave, and the transcript must not be lost to it.
+      writeTranscript();
 
       // Tear the pipes down explicitly. A grandchild still holding their write ends keeps
       // our read ends alive as active handles, so without this the whole board-round
@@ -151,7 +161,6 @@ function runReviewer(rv, ctx) {
       child.stderr?.destroy();
       child.stdin?.destroy();
 
-      writeTranscript();
       done(result);
     };
 
