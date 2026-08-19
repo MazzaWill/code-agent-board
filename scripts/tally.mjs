@@ -20,9 +20,17 @@ export function tallyRound(results) {
   const approve = okResults.filter((r) => r.verdict === 'approve').length;
   const requestChanges = okResults.length - approve;
 
+  // Cross-verification needs at least two independent verdicts. With fewer, a single
+  // model's approval would be presented as though two vendors had agreed — which is the
+  // one thing this whole mechanism exists to prevent. This can happen without any
+  // reviewer failing: configure one reviewer and every round would have read "approved".
+  // Found by board reviewing its own fixes.
+  const MIN_VERDICTS = 2;
+
   let outcome;
   if (okResults.length === 0) outcome = 'all_failed';
   else if (failed > 0) outcome = 'inconclusive';
+  else if (okResults.length < MIN_VERDICTS) outcome = 'inconclusive';
   else if (requestChanges > 0) outcome = 'changes_requested';
   else outcome = 'approved';
 

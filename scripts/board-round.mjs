@@ -113,10 +113,16 @@ function runReviewer(rv, ctx) {
     // Every exit path writes a transcript, including this one. The summary table
     // advertises a transcript path per reviewer; a path that does not exist would send
     // the reader looking for a file that was never written.
+    //
+    // The elapsed time is part of the record because it is diagnostic: a reviewer that
+    // answers a large brief in seconds has not read it. That failure mode was measured
+    // here (§13, #20) and nothing in the output itself reveals it.
+    const started = Date.now();
     const writeTranscript = () =>
       writeFileSync(
         ctx.transcript(rv.id),
-        `# ${rv.label}\n\n## stdout\n\n${stdout}\n\n## stderr\n\n${stderr}\n`,
+        `# ${rv.label}\n\nElapsed: ${((Date.now() - started) / 1000).toFixed(1)}s\n` +
+          `\n## stdout\n\n${stdout}\n\n## stderr\n\n${stderr}\n`,
       );
 
     const child = spawn(rv.bin, args, { cwd: ctx.repo });
@@ -256,9 +262,15 @@ async function main() {
   mkdirSync(dir, { recursive: true });
   const briefPath = join(dir, 'brief.md');
   writeFileSync(briefPath, brief);
+  // Set the expectation from the actual size rather than repeating one number. Measured:
+  // 3,468 lines took 13m49s, which is 71 seconds under the default timeout.
+  const big = changedLines > 2000;
+  const eta = big
+    ? `well over 10 minutes at xhigh effort for a change this size (the timeout is ${(cfg.timeoutMs ?? 300000) / 1000}s)`
+    : 'roughly 5-8 minutes at xhigh effort';
   process.stderr.write(
     `[${selected.label}] brief ready: ${changedLines} changed lines, ${brief.length} characters.\n` +
-      `Asking ${cfg.reviewers.length} reviewers in parallel — expect 5-8 minutes at xhigh effort, with no output until they finish.\n`,
+      `Asking ${cfg.reviewers.length} reviewers in parallel — expect ${eta}, with no output until they finish.\n`,
   );
 
   const template = readFileSync(join(ROOT, selected.prompt), 'utf8');

@@ -90,3 +90,23 @@ test('all_failed → abort immediately', () => {
   const s = advanceState({ round: 1, consecutiveInconclusive: 0 }, 'all_failed');
   assert.equal(s.action, 'abort');
 });
+
+test('a single verdict is never approval, even with nobody failing', () => {
+  // Configure one reviewer and every round used to read "approved" — one model's opinion
+  // presented as though two vendors had agreed. No reviewer fails in this scenario, so
+  // the existing failure paths never caught it. Found by board reviewing its own fixes.
+  const one = [ok('codex', 'approve')];
+  const t = tallyRound(one);
+  assert.equal(t.outcome, 'inconclusive');
+  assert.equal(t.failed, 0, 'nothing failed — the round is inconclusive because it was never cross-verified');
+});
+
+test('a single request_changes verdict is also inconclusive, not changes_requested', () => {
+  const t = tallyRound([ok('codex', 'request_changes', [BLK])]);
+  assert.equal(t.outcome, 'inconclusive');
+  assert.equal(t.blocking.length, 1, 'the finding is still surfaced');
+});
+
+test('two verdicts remain the normal path', () => {
+  assert.equal(tallyRound([ok('codex', 'approve'), ok('grok', 'approve')]).outcome, 'approved');
+});

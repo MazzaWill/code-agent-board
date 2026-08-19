@@ -110,6 +110,28 @@ export function assertModelParity(rv, probeArgs) {
   return { ok: true };
 }
 
+// Is this checkout reachable as a skill directory named "board"? Resolve each plausible
+// install location and compare with ROOT, so the answer does not depend on how the doctor
+// was invoked.
+export function installedAsBoard(root = ROOT, env = process.env) {
+  const candidates = [
+    env.BOARD_HOME,
+    env.HOME ? join(env.HOME, '.claude/skills/board') : null,
+    env.CLAUDE_PLUGIN_ROOT ? join(env.CLAUDE_PLUGIN_ROOT, 'skills/board') : null,
+    join(process.cwd(), '.claude/skills/board'),
+  ].filter(Boolean);
+
+  for (const c of candidates) {
+    try {
+      if (realpathSync(c) === realpathSync(root)) return true;
+    } catch {
+      /* candidate does not exist */
+    }
+  }
+  // Or it already lives in a directory literally named board (a plain, non-symlink install).
+  return basename(root) === 'board';
+}
+
 function main() {
   const argv = process.argv.slice(2);
   const ci = argv.indexOf('--config');
@@ -117,16 +139,21 @@ function main() {
 
   console.log(`skill root: ${ROOT}`);
 
-  // Judge the install name from the path this was INVOKED through, not from the
-  // realpath'd physical directory. Installing correctly means symlinking the checkout to
-  // .../skills/board, in which case the physical directory is still called
-  // code-agent-board — checking that would warn every properly-installed user.
-  const invokedRoot = process.argv[1] ? resolve(dirname(process.argv[1]), '..') : ROOT;
-  if (basename(invokedRoot) !== 'board') {
+  // Answer the question that actually matters — "is this checkout reachable as a skill
+  // named board?" — instead of inspecting whatever path the doctor was launched from.
+  //
+  // Two earlier attempts were both wrong. Checking basename(ROOT) warns every correct
+  // install, because installing correctly means symlinking a checkout named
+  // code-agent-board to .../skills/board. Checking the invocation path fixes that only
+  // when the doctor is launched THROUGH the symlink — while README's `npm run doctor` and
+  // install.sh's own printed command both run from the physical checkout, so the false
+  // warning survived that fix too. Resolving the install target gives the same answer no
+  // matter how the doctor was started. Found by board reviewing its own fix.
+  if (!installedAsBoard()) {
     console.log(
-      `⚠️  this directory is named "${basename(ROOT)}", but the skill must be installed as "board"\n` +
+      '⚠️  this checkout is not reachable as a skill named "board"\n' +
         '   (the /board command and the skill frontmatter both depend on that name).\n' +
-        '   Symlink or rename it: ln -s "$PWD" ~/.claude/skills/board',
+        '   Run: sh install.sh',
     );
   }
 
@@ -150,7 +177,18 @@ function main() {
     process.exit(1);
   }
 
-  for (const rv of cfg.reviewers) {
+  const reviewers = cfg.reviewers ?? [];
+  if (reviewers.length < 2) {
+    // Fewer than two reviewers is not a degraded setup, it is a different product: one
+    // model reviewing alone, reported as though two vendors had cross-checked.
+    console.log(
+      `❌ only ${reviewers.length} reviewer(s) configured — board needs at least 2, from different ` +
+        'vendors, or there is no cross-verification to be had',
+    );
+    bad++;
+  }
+
+  for (const rv of reviewers) {
     process.stdout.write(`${String(rv.label).padEnd(24)} `);
 
     if (!findOnPath(rv.bin)) {

@@ -18,7 +18,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
 
-import { assertModelParity, buildProbeArgs, findOnPath } from '../scripts/board-doctor.mjs';
+import { assertModelParity, buildProbeArgs, findOnPath, installedAsBoard } from '../scripts/board-doctor.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DOCTOR = join(ROOT, 'scripts/board-doctor.mjs');
@@ -171,26 +171,64 @@ test('doctor actually runs when invoked through a symlinked install', async () =
   assert.equal(r.status, 1, 'doctor must still fail closed when reached through a symlink');
 });
 
-test('no name warning when installed correctly as .../skills/board', async () => {
-  // The check must look at the path the doctor was invoked through, not the realpath'd
-  // physical directory. Installing correctly means symlinking a checkout called
-  // code-agent-board to .../skills/board — judging by the physical name warns every
-  // user who followed the README exactly.
-  const dir = await mkdtemp(join(tmpdir(), 'board-named-'));
-  created.push(dir);
-  const skills = join(dir, 'skills');
-  await mkdir(skills, { recursive: true });
-  await symlink(ROOT, join(skills, 'board'));
+// A pair of reviewers that exist in config but not on PATH. Two of them, because a
+// config with fewer is now itself a failure — see below.
+const TWO_MISSING = [
+  { id: 'g1', label: 'g1', bin: 'definitely-not-a-real-binary-9f3a2b', args: ['-m', 'x'],
+    probe: { dropFlagsWithValue: [], dropFlags: [], extraArgs: [], promptVia: 'argv' } },
+  { id: 'g2', label: 'g2', bin: 'definitely-not-a-real-binary-9f3a2c', args: ['-m', 'y'],
+    probe: { dropFlagsWithValue: [], dropFlags: [], extraArgs: [], promptVia: 'argv' } },
+];
 
-  const p = await fixtureConfig([]);
-  const r = spawnSync(process.execPath, [join(skills, 'board/scripts/board-doctor.mjs'), '--config', p], { encoding: 'utf8' });
+test('installedAsBoard: true when a skills/board symlink resolves to this checkout', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'board-home-'));
+  created.push(home);
+  await mkdir(join(home, '.claude/skills'), { recursive: true });
+  await symlink(ROOT, join(home, '.claude/skills/board'));
 
-  assert.doesNotMatch(r.stdout, /must be installed as/, 'a correct install must not be warned about');
-  assert.equal(r.status, 0, 'no reviewers configured and nothing wrong → exit 0');
+  assert.equal(installedAsBoard(ROOT, { HOME: home }), true);
 });
 
-test('the name warning still fires when the directory is not called board', async () => {
-  const p = await fixtureConfig([]);
+test('installedAsBoard: false when nothing points here', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'board-empty-home-'));
+  created.push(home);
+  assert.equal(installedAsBoard(ROOT, { HOME: home }), false);
+});
+
+test('installedAsBoard: BOARD_HOME counts as an install', () => {
+  assert.equal(installedAsBoard(ROOT, { BOARD_HOME: ROOT }), true);
+});
+
+test('installedAsBoard: the answer does not depend on how doctor was invoked', async () => {
+  // The previous two attempts at this check both keyed off the invocation path, so
+  // `npm run doctor` (which README tells people to run, from the physical checkout)
+  // kept warning on a perfectly correct install. Resolving the install target instead
+  // gives one answer regardless of entry point. Found by board reviewing the first fix.
+  const home = await mkdtemp(join(tmpdir(), 'board-home2-'));
+  created.push(home);
+  await mkdir(join(home, '.claude/skills'), { recursive: true });
+  await symlink(ROOT, join(home, '.claude/skills/board'));
+
+  const viaSymlink = join(home, '.claude/skills/board');
+  assert.equal(installedAsBoard(ROOT, { HOME: home }), true, 'physical-path invocation');
+  assert.equal(installedAsBoard(viaSymlink, { HOME: home }), true, 'symlink invocation');
+});
+
+test('a config with fewer than two reviewers fails, however healthy they are', async () => {
+  // Not a degraded setup — a different product. One model reviewing alone, reported as
+  // though two vendors had cross-checked. Both zero and one must fail.
+  for (const reviewers of [[], [TWO_MISSING[0]]]) {
+    const p = await fixtureConfig(reviewers);
+    const r = spawnSync(process.execPath, [join(ROOT, 'scripts/board-doctor.mjs'), '--config', p], { encoding: 'utf8' });
+    assert.equal(r.status, 1, `${reviewers.length} reviewer(s) must fail`);
+    assert.match(r.stdout, /at least 2/);
+  }
+});
+
+test('doctor still fails closed with two reviewers whose binaries are missing', async () => {
+  const p = await fixtureConfig(TWO_MISSING);
   const r = spawnSync(process.execPath, [join(ROOT, 'scripts/board-doctor.mjs'), '--config', p], { encoding: 'utf8' });
-  assert.match(r.stdout, /must be installed as/);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /not installed/);
+  assert.doesNotMatch(r.stdout, /at least 2/, 'two reviewers must not trip the minimum-count check');
 });

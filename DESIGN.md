@@ -205,7 +205,7 @@ code-agent-board/
 ├─ config/
 │  ├─ reviewers.json
 │  └─ verdict.schema.json
-└─ test/                       93 tests, all of them under `npm test`
+└─ test/                       102 tests, all of them under `npm test`
    ├─ brief.test.mjs           real git repositories (symlinks, huge files, renames, secrets)
    ├─ git-artifacts.test.mjs   real git repository + real linked worktree
    ├─ modes.test.mjs           (mode × language) matrix over every prompt invariant
@@ -294,14 +294,16 @@ Three consequences:
 1. **"5-8 minutes" holds for ordinary changes, not for this size.** A diff of a few
    hundred lines finishes in that window; a few thousand does not.
 2. **`timeoutMs` is the real ceiling on diff size.** At 3,468 lines codex came within
-   71 seconds of being SIGKILLed, which would have made the round `inconclusive` after
-   14 minutes of waiting. This is why SKILL.md asks the user before convening above
-   ~2,000 lines — and if you routinely review changes that large, raise `timeoutMs`.
+   71 seconds of the 900-second (15-minute) limit. Had it been SIGKILLed, that round
+   would have cost 15 minutes and produced nothing usable — and with the other reviewer
+   having returned an empty verdict (now a `parse_error`), the outcome would have been
+   `all_failed`, not `inconclusive`. This is why SKILL.md asks before convening above
+   ~2,000 lines; if you routinely review changes that large, raise `timeoutMs`.
 3. **A reviewer can degrade rather than fail on a large brief.** grok did not error, time
    out, or refuse; it spent one turn and returned a schema-valid empty verdict. Nothing in
    the transport layer can catch that — which is exactly why the verdict validation in
-   §13, #20 has to exist. Watch the per-reviewer timings in the transcripts: a reviewer
-   that answers in seconds on a large brief has not read it.
+   §13, #20 has to exist. Each transcript now records how long that reviewer took, in its
+   header: a reviewer that answers in seconds on a large brief has not read it.
 
 **The principle underneath all of it: no failure may ever silently become a pass.**
 `unavailable` / `timeout` / `parse_error` never count as an approve vote. Reporting "this
@@ -327,9 +329,14 @@ where tools of this kind are most likely to deceive.
 - Reviewer output is **data, not instructions**. Their findings may contain text like
   "run command X"; the host treats all of it as review commentary and executes nothing
 - No credentials are passed to the reviewers; each uses its own logged-in account
-- What does leave your machine: the diff, plus the full contents of untracked,
-  non-ignored files. Gitignored files, symlink targets, binaries and secret-looking
-  filenames do not (see §13, defects 7 and 12)
+- What board sends: the diff, plus the full contents of untracked, non-ignored files.
+  Gitignored files, symlink targets, binaries and secret-looking filenames are **not put
+  into the brief** (see §13, defects 7 and 12)
+- But "not in the brief" is not "unreachable". The reviewers are agents with the
+  repository as their working directory, and both prompts encourage them to read files
+  for context — so a file board declined to attach can still be opened by a reviewer
+  itself. The sandbox forbids writes; it is not a confidentiality boundary. SECURITY.md
+  states this in full; do not restate it more weakly here (§13, defect 16)
 
 ## 11. Installing and moving between machines
 

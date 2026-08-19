@@ -273,7 +273,7 @@ handling and three tests still assume POSIX behaviour (symlinks, file modes). Us
 ## Development
 
 ```bash
-npm test        # 93 tests, no npm install needed
+npm test        # 102 tests, no npm install needed
 npm run doctor
 ```
 
