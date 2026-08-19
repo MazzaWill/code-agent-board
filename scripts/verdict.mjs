@@ -26,10 +26,21 @@ export function parseGrokOutput(text) {
   const { value: env, err } = parseJson(text, 'grok ');
   if (err) return { status: 'parse_error', reason: err };
 
+  // `null` is a valid JSON document, and it is exactly what a CLI emits when it produced
+  // no result — so it sails past the empty-text check and then explodes on property
+  // access. This throws inside a child-process callback, where main().catch cannot reach
+  // it, killing the whole round and discarding the other reviewer's paid verdict.
+  if (!env || typeof env !== 'object' || Array.isArray(env)) {
+    return { status: 'parse_error', reason: `grok output was ${env === null ? 'null' : typeof env}, not an envelope` };
+  }
+
   let data = env.structuredOutput;
   // Fall back to .text when structuredOutput is missing — it is the same verdict in
   // string form. Do not kill a whole round over one absent field if it can be recovered.
-  if (data === undefined && typeof env.text === 'string') {
+  // `== null` on purpose: an explicit "structuredOutput": null is likelier than the key
+  // being absent, and the recovery path existed precisely so one empty field would not
+  // cost a whole round.
+  if (data == null && typeof env.text === 'string') {
     const fallback = parseJson(env.text, 'grok .text ');
     if (!fallback.err) data = fallback.value;
   }

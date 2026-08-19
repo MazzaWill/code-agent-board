@@ -10,7 +10,7 @@
 // blow past ARG_MAX. codex reads from stdin (the trailing `-`), grok has --prompt-file.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -159,6 +159,20 @@ function runReviewer(rv, ctx) {
           `\n## stdout\n\n${stdout}\n\n## stderr\n\n${stderr}\n`,
       );
 
+    // Clear any verdict left by a previous attempt at this round number BEFORE spawning.
+    //
+    // The protocol tells the host that an inconclusive round "does not count — re-run with
+    // the same round number", and advanceState returns retry without incrementing it, so a
+    // retry reuses round-N/. The file read below is guarded only by existsSync, so a
+    // reviewer that exits this time without writing anything gets its PREVIOUS verdict
+    // counted as a fresh vote. Reproduced: a reviewer that did no work voted approve on a
+    // diff it never saw, and the round reported "approved (unanimous)".
+    try {
+      rmSync(ctx.outFile(rv.id), { force: true });
+    } catch {
+      /* nothing to clear */
+    }
+
     // detached puts the reviewer in its own process group so killTree can take the helpers
     // with it. We deliberately do NOT unref() — this round is waiting on the result.
     const child = spawn(rv.bin, args, { cwd: ctx.repo, detached: true });
@@ -169,6 +183,15 @@ function runReviewer(rv, ctx) {
       killTree(child);
     }, ctx.timeoutMs);
 
+    // setEncoding puts a StringDecoder in front of the stream. Without it, `stdout += d`
+    // stringifies each Buffer independently, and any multi-byte character straddling a
+    // 64 KiB chunk boundary becomes U+FFFD. JSON's structural characters are ASCII, so
+    // JSON.parse still succeeds and validateVerdict still passes — the damage lands inside
+    // one_line_summary and blocking[].issue and reaches the summary table with nothing
+    // signalling it. `--lang zh-CN` exists precisely to make reviewers answer in a
+    // multi-byte language, and grok is configured outputVia: 'stdout'.
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
 
@@ -255,6 +278,13 @@ function runReviewer(rv, ctx) {
     // grace period for the streams to drain, and close settles immediately when it comes.
     const STDIO_GRACE_MS = 5000;
     child.on('exit', (code) => {
+      // The process is gone, so the deadline no longer applies to it. Leaving the timer
+      // armed lets the 5s drain window straddle the deadline: timedOut flips to true and
+      // conclude() — which checks that flag before looking at what actually arrived —
+      // reports a timeout while the complete verdict sits in the transcript on disk. With
+      // a measured 13m49s run against a 15m timeout, finishing inside the last five
+      // seconds is not hypothetical.
+      if (!timedOut) clearTimeout(timer);
       graceTimer = setTimeout(() => conclude(code), STDIO_GRACE_MS);
     });
     child.on('close', (code) => conclude(code));

@@ -231,3 +231,33 @@ test('security: the secret patterns cover what the docs promise', () => {
     assert.doesNotMatch(withheld(f) ?? '', /looks like a secret/, `${f} must not be treated as a secret`);
   }
 });
+
+test('security: secret patterns match anywhere in the filename, not just at the start', async () => {
+  // Every alternative used to be anchored to the start of a path segment, so the most
+  // common real-world spellings walked straight through: prod.env and staging.env are the
+  // standard docker --env-file / dotenv-per-stage names, and app-secrets.json /
+  // k8s-secrets.yaml are ordinary Kubernetes conventions. Verified before the fix: a brief
+  // carried DB_PASSWORD=hunter2 from prod.env five lines below .env's "contents withheld".
+  const withheld = (f) => /looks like a secret/.test(readUntrackedFile('/nonexistent-repo', f).skipped ?? '');
+
+  for (const f of [
+    'prod.env', 'local.env', 'staging.env', 'config/db.env', 'staging.env.bak',
+    'app-secrets.json', 'k8s-secrets.yaml', 'my-credentials.txt',
+    '.secrets/token.txt', 'secrets/api.json',
+  ]) {
+    assert.ok(withheld(f), `${f} must be withheld`);
+  }
+
+  for (const f of ['secretsanta.md', 'src/environment.ts', 'keyboard.tsx', 'src/index.ts']) {
+    assert.ok(!withheld(f), `${f} must not be treated as a secret`);
+  }
+});
+
+test('security: a secret-looking file really is kept out of a real brief', async () => {
+  const dir = await newRepo();
+  await writeFile(join(dir, 'prod.env'), 'DB_PASSWORD=hunter2\n');
+
+  const brief = buildBrief(dir, { intent: 't' });
+  assert.doesNotMatch(brief, /hunter2/, 'the password reached the brief');
+  assert.match(brief, /looks like a secret/);
+});

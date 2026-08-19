@@ -186,3 +186,108 @@ test('Ctrl-C stops the reviewers instead of leaving them running', async () => {
 
   assert.deepEqual(remaining, [], 'helper processes survived cancellation');
 });
+
+test('a stale verdict from a previous attempt is never counted as this round', async () => {
+  // The protocol says an inconclusive round "does not count — re-run with the same round
+  // number", so a retry reuses round-N/. The verdict file was read behind a bare
+  // existsSync, so a reviewer that exits this time without writing anything had its
+  // PREVIOUS verdict counted as a fresh vote. Reproduced before the fix: a reviewer that
+  // did no work voted approve on a diff it never saw, and the round read "approved
+  // (unanimous)".
+  const home = await mkdtemp(join(tmpdir(), 'board-stale-'));
+  const dir = join(home, 'repo');
+  await mkdir(dir);
+  await scratchRepo(dir);
+  await writeFile(join(home, 'intent.md'), 'why\n');
+
+  const grok = join(home, 'grok');
+  await writeFile(grok, `#!/bin/sh\nprintf '%s'\n`.replace('%s', ENVELOPE('grok ok').replace(/'/g, "'\\''")));
+  await chmod(grok, 0o755);
+
+  const roster = (codexBin) => ({
+    timeoutMs: TIMEOUT_MS,
+    reviewers: [
+      { id: 'codex', label: 'codex', bin: codexBin, vendor: 'v1', promptVia: 'stdin', outputVia: 'file',
+        args: ['x', '{outFile}'], probe: { dropFlagsWithValue: [], dropFlags: [], extraArgs: [], promptVia: 'argv' } },
+      { id: 'grok', label: 'grok', bin: grok, vendor: 'v2', promptVia: 'stdin', outputVia: 'stdout',
+        args: [], probe: { dropFlagsWithValue: [], dropFlags: [], extraArgs: [], promptVia: 'argv' } },
+    ],
+  });
+
+  // Attempt 1: codex writes a real verdict.
+  const writer = join(home, 'writer');
+  await writeFile(writer, `#!/bin/sh\nprintf '{"verdict":"approve","blocking":[],"non_blocking":[],"one_line_summary":"STALE-FROM-ATTEMPT-1"}' > "$2"\n`);
+  await chmod(writer, 0o755);
+  const cfg1 = join(home, 'cfg1.json');
+  await writeFile(cfg1, JSON.stringify(roster(writer)));
+
+  const run = (cfg) => spawnSync(
+    process.execPath,
+    [ROUND, '--repo', dir, '--round', '1', '--intent', join(home, 'intent.md'), '--config', cfg],
+    { encoding: 'utf8', timeout: ALLOWED_MS },
+  );
+
+  run(cfg1);
+
+  // Attempt 2, same round number: codex exits without writing anything.
+  const nothing = join(home, 'nothing');
+  await writeFile(nothing, '#!/bin/sh\nexit 0\n');
+  await chmod(nothing, 0o755);
+  const cfg2 = join(home, 'cfg2.json');
+  await writeFile(cfg2, JSON.stringify(roster(nothing)));
+
+  const r = run(cfg2);
+
+  assert.doesNotMatch(r.stdout, /STALE-FROM-ATTEMPT-1/, "the previous attempt's verdict was counted as this round's");
+  assert.doesNotMatch(r.stdout, /approved \(unanimous\)/, 'a reviewer that did no work must not carry the round');
+  assert.match(r.stdout, /parse_error/);
+});
+
+test('a multi-byte verdict survives chunk boundaries intact', async () => {
+  // `stdout += buffer` stringifies each chunk on its own, so a character straddling a
+  // 64 KiB boundary became U+FFFD. JSON's structural characters are ASCII, so the parse
+  // still succeeded and validation still passed — the damage landed inside the findings
+  // themselves and reached the summary table with nothing signalling it. --lang zh-CN
+  // exists to make reviewers answer in exactly such a language.
+  const long = '评审意见'.repeat(8000);
+  const verdict = {
+    structuredOutput: {
+      verdict: 'request_changes',
+      blocking: [{ file: 'a.ts', line: 1, issue: long, why_it_matters: '要紧', suggested_fix: null }],
+      non_blocking: [], one_line_summary: '中文摘要',
+    },
+  };
+
+  const home = await mkdtemp(join(tmpdir(), 'board-utf8-'));
+  const dir = join(home, 'repo');
+  await mkdir(dir);
+  await scratchRepo(dir);
+  await writeFile(join(home, 'intent.md'), 'why\n');
+  await writeFile(join(home, 'verdict.json'), JSON.stringify(verdict));
+
+  const reviewers = [];
+  for (const [i, id] of ['a', 'b'].entries()) {
+    const bin = join(home, `r-${id}`);
+    await writeFile(bin, i === 0
+      ? `#!/bin/sh\ncat ${JSON.stringify(join(home, 'verdict.json'))}\n`
+      : `#!/bin/sh\nprintf '%s'\n`.replace('%s', ENVELOPE('ok').replace(/'/g, "'\\''")));
+    await chmod(bin, 0o755);
+    reviewers.push({ id, label: id, bin, vendor: `v${i}`, promptVia: 'stdin', outputVia: 'stdout', args: [],
+      probe: { dropFlagsWithValue: [], dropFlags: [], extraArgs: [], promptVia: 'argv' } });
+  }
+  const cfg = join(home, 'reviewers.json');
+  await writeFile(cfg, JSON.stringify({ timeoutMs: TIMEOUT_MS, reviewers }));
+
+  spawnSync(
+    process.execPath,
+    [ROUND, '--repo', dir, '--round', '1', '--intent', join(home, 'intent.md'), '--config', cfg],
+    { encoding: 'utf8', timeout: ALLOWED_MS },
+  );
+
+  const { readFileSync } = await import('node:fs');
+  const results = JSON.parse(readFileSync(join(dir, '.claude/board/round-1/results.json'), 'utf8'));
+  const issue = results.results.find((r) => r.id === 'a').blocking[0].issue;
+
+  assert.ok(!issue.includes('�'), 'the verdict contains replacement characters');
+  assert.equal(issue, long, 'the verdict was corrupted in transit');
+});

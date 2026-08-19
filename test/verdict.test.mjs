@@ -157,3 +157,25 @@ test('the contradiction that resolves toward caution is still allowed through', 
   assert.equal(n.verdict, 'request_changes');
   assert.equal(n.contradiction, true);
 });
+
+test('a literal null document is a parse_error, not a crash', () => {
+  // `null` is valid JSON and is what a CLI emits when it produced no result, so it sails
+  // past the empty-text check and then throws on property access — inside a child-process
+  // callback, where main().catch cannot reach it. That killed the entire round and took
+  // the other reviewer's paid verdict with it.
+  for (const raw of ['null', 'null\n', '123', '"a string"', '[]']) {
+    const r = parseGrokOutput(raw);
+    assert.equal(r.status, 'parse_error', `${raw} should be a parse_error`);
+  }
+});
+
+test('an explicit "structuredOutput": null still recovers from .text', () => {
+  // The fallback was gated on `undefined`, so a CLI that emits null for a field it could
+  // not fill — the likelier of the two — lost a verdict that was sitting right there in
+  // .text, and cost a full-price rerun.
+  const verdict = { verdict: 'approve', blocking: [], non_blocking: [], one_line_summary: 'recovered' };
+  const r = parseGrokOutput(JSON.stringify({ structuredOutput: null, text: JSON.stringify(verdict), total_cost_usd: 0.12 }));
+  assert.equal(r.status, 'ok');
+  assert.deepEqual(r.data, verdict);
+  assert.equal(r.costUsd, 0.12);
+});

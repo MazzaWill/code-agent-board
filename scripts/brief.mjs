@@ -32,7 +32,31 @@ const BINARY = /\.(png|jpe?g|gif|webp|avif|ico|svgz|pdf|zip|gz|tgz|bz2|xz|7z|mp[
 // `secrets.env` and `secrets.txt` entirely. Over-matching here is cheap (the skip is
 // visible and the reviewer can still ask about the file); under-matching ships a secret
 // to two vendors.
-const SENSITIVE = /(^|\/)(\.env[^/]*|\.netrc|\.npmrc|\.pgpass|secrets?([._-][^/]*)?|.*\.(pem|key|p12|pfx|jks|keystore)|id_(rsa|dsa|ecdsa|ed25519).*|.*credentials.*)$/i;
+// Match anywhere within the final path segment, not just at its start. Anchoring each
+// alternative to the beginning of the segment let the most common real-world spellings
+// through: prod.env and staging.env (docker --env-file, dotenv-per-stage), and
+// app-secrets.json / k8s-secrets.yaml. Verified before the fix: a brief carried
+// "DB_PASSWORD=hunter2" from prod.env five lines below .env's "contents withheld".
+const SENSITIVE = new RegExp(
+  '(^|/)(' +
+    '\\.env[^/]*' + '|' +                       // .env, .env.local, .envrc
+    '[^/]*\\.env(\\.[^/]*)?' + '|' +             // prod.env, db.env, staging.env.bak
+    '[^/]*secrets?([._-][^/]*)?' + '|' +        // secrets.txt, app-secrets.json, k8s-secrets.yaml
+    '[^/]*credentials[^/]*' + '|' +
+    '[^/]*\\.(pem|key|p12|pfx|jks|keystore)' + '|' +
+    'id_(rsa|dsa|ecdsa|ed25519)[^/]*' + '|' +
+    '\\.netrc|\\.npmrc|\\.pgpass' +
+  ')$',
+  'i',
+);
+
+// A directory called secrets/ or .secrets/ anywhere in the path makes everything under it
+// sensitive, however the leaf file happens to be named.
+const SENSITIVE_DIR = /(^|\/)\.?secrets?\//i;
+
+function looksSensitive(rel) {
+  return SENSITIVE.test(rel) || SENSITIVE_DIR.test(rel);
+}
 
 // Cap on a single untracked file's contents. Beyond this we attach the head and say so,
 // so one accidentally-present log file cannot push the whole brief out of the
@@ -83,7 +107,7 @@ function regularFileSize(abs) {
 }
 
 export function readUntrackedFile(repo, rel) {
-  if (SENSITIVE.test(rel)) return { rel, skipped: 'looks like a secret — contents withheld' };
+  if (looksSensitive(rel)) return { rel, skipped: 'looks like a secret — contents withheld' };
   if (BINARY.test(rel)) return { rel, skipped: 'binary file, contents not attached' };
 
   const abs = join(repo, rel);
