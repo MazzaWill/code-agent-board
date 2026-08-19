@@ -70,3 +70,86 @@ test('the CLI entry point rejects a bad flag with exit code 2', () => {
   assert.equal(r.status, 2);
   assert.match(r.stderr, /--mdoe/);
 });
+
+// —— Preflight on the repository itself. Each of these used to surface as
+// —— "board-round crashed: Error: git diff --quiet failed: ..." — a stack-shaped message
+// —— that reads like a bug in board rather than a description of what is wrong.
+
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+
+const ROUND = join(ROOT, 'scripts/board-round.mjs');
+const runStat = (repo) =>
+  spawnSync(process.execPath, [ROUND, '--repo', repo, '--stat'], { encoding: 'utf8' });
+
+test('a repository with no commits yet is explained, not crashed on', async () => {
+  // Ordinary situation: git init, write some code, want it reviewed before committing.
+  const dir = await mkdtemp(join(tmpdir(), 'board-fresh-'));
+  execFileSync('git', ['-C', dir, 'init', '-q']);
+  await writeFile(join(dir, 'a.txt'), 'x\n');
+
+  const r = runStat(dir);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /no commits yet/);
+  assert.doesNotMatch(r.stderr, /crashed/, 'must not look like a bug in board');
+});
+
+test('a directory that is not a git repository is explained', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'board-notgit-'));
+  const r = runStat(dir);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /not a git repository/);
+  assert.doesNotMatch(r.stderr, /crashed/);
+});
+
+test('a --repo path that does not exist is explained', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'board-missing-'));
+  const r = runStat(join(dir, 'nope'));
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /does not exist/);
+  assert.doesNotMatch(r.stderr, /crashed/);
+});
+
+test('a normal repository still works', () => {
+  const r = runStat(ROOT);
+  assert.equal(r.status, 0);
+  const stat = JSON.parse(r.stdout);
+  assert.equal(typeof stat.dirty, 'boolean');
+  assert.equal(typeof stat.changedLines, 'number');
+});
+
+test('--intent pointing at a directory is explained', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'board-intent-dir-'));
+  execFileSync('git', ['-C', dir, 'init', '-q']);
+  await writeFile(join(dir, 'a.txt'), 'x\n');
+  execFileSync('git', ['-C', dir, 'add', '-A']);
+  execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init']);
+  await writeFile(join(dir, 'a.txt'), 'y\n');
+
+  const asDir = await mkdtemp(join(tmpdir(), 'board-notafile-'));
+  const r = spawnSync(process.execPath, [ROUND, '--repo', dir, '--round', '1', '--intent', asDir], { encoding: 'utf8' });
+
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /regular file/);
+  assert.doesNotMatch(r.stderr, /crashed/);
+});
+
+test('--intent that cannot be read is explained', { skip: process.getuid?.() === 0 ? 'root reads everything' : false }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'board-intent-perm-'));
+  execFileSync('git', ['-C', dir, 'init', '-q']);
+  await writeFile(join(dir, 'a.txt'), 'x\n');
+  execFileSync('git', ['-C', dir, 'add', '-A']);
+  execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init']);
+  await writeFile(join(dir, 'a.txt'), 'y\n');
+
+  const holder = await mkdtemp(join(tmpdir(), 'board-perm-'));
+  const locked = join(holder, 'intent.md');
+  await writeFile(locked, 'intent\n', { mode: 0o000 });
+
+  const r = spawnSync(process.execPath, [ROUND, '--repo', dir, '--round', '1', '--intent', locked], { encoding: 'utf8' });
+
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /cannot be read/);
+  assert.doesNotMatch(r.stderr, /crashed/);
+});

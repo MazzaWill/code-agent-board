@@ -9,8 +9,8 @@
 // Why the prompt does not go through argv: a diff is easily hundreds of lines and would
 // blow past ARG_MAX. codex reads from stdin (the trailing `-`), grok has --prompt-file.
 
-import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -184,12 +184,32 @@ function runReviewer(rv, ctx) {
   });
 }
 
+// Fail with an explanation, not with git's raw stderr wrapped in "board-round crashed".
+// Every one of these produced a stack-shaped message that reads like a bug in board, and
+// the last is a perfectly ordinary situation: someone runs `git init`, writes some code,
+// and wants it reviewed before the first commit exists.
+function assertReviewable(repo) {
+  if (!existsSync(repo)) {
+    die(`--repo path does not exist: ${repo}`);
+  }
+  if (spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel']).status !== 0) {
+    die(`${repo} is not a git repository — board builds its brief from git diff`);
+  }
+  if (spawnSync('git', ['-C', repo, 'rev-parse', '--verify', 'HEAD']).status !== 0) {
+    die(
+      `${repo} has no commits yet — board diffs against HEAD, so make at least one commit first ` +
+        '(an empty one is fine: git commit --allow-empty -m "start")',
+    );
+  }
+}
+
 async function main() {
   const parsed = parseArgs(process.argv.slice(2));
   if (!parsed.ok) die(parsed.reason);
   ARGS = parsed.args;
 
   const repo = resolve(arg('repo', process.cwd()));
+  assertReviewable(repo);
 
   // --stat answers "how big is this change?" without convening anyone. It exists so the
   // protocol never has to run an inline `node -e` with a hardcoded import path.
@@ -252,7 +272,25 @@ async function main() {
       die(`${flag} must point outside the repository under review (got ${fileReal}); otherwise it becomes an untracked file and ends up inside its own brief`);
     }
 
-    const text = readFileSync(path, 'utf8');
+    // Same reasoning as assertReviewable: a directory or an unreadable file used to come
+    // back as "board-round crashed: Error: EISDIR" / "EACCES", which reads like a bug in
+    // board rather than a description of what the operator got wrong.
+    let stats;
+    try {
+      stats = statSync(fileReal);
+    } catch (e) {
+      die(`${flag} cannot be read: ${path} (${e.code ?? e.message})`);
+    }
+    if (!stats.isFile()) {
+      die(`${flag} must point at a regular file, but ${path} is not one`);
+    }
+
+    let text;
+    try {
+      text = readFileSync(path, 'utf8');
+    } catch (e) {
+      die(`${flag} cannot be read: ${path} (${e.code ?? e.message})`);
+    }
     if (!text.trim()) die(`${flag} points at an empty file: ${path} — ${why}`);
     return text;
   };
