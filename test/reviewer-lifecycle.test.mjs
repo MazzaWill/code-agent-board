@@ -33,9 +33,16 @@ async function scratchRepo(dir) {
   await writeFile(join(dir, 'a.txt'), 'y\n');
 }
 
-// Exits immediately, but leaves a grandchild holding stdout/stderr for two minutes.
+// Reads the brief the way a real reviewer does, answers, exits — and leaves a grandchild
+// holding stdout/stderr for two minutes.
+//
+// The read is in the FOREGROUND on purpose. Backgrounding it made these tests flaky once
+// the undelivered-brief check landed: whether the write completed before the shell tore
+// stdin down was a race, and losing it is now correctly reported as "the brief was not
+// delivered". A reviewer that does not read its input is a different test — see
+// 'a reviewer that never received the brief cannot vote'.
 const FAKE = `#!/bin/sh
-cat > /dev/null &
+cat > /dev/null
 sleep 120 &
 printf '%s'
 exit 0
@@ -207,7 +214,7 @@ test('a stale verdict from a previous attempt is never counted as this round', a
   await writeFile(join(home, 'intent.md'), 'why\n');
 
   const grok = join(home, 'grok');
-  await writeFile(grok, `#!/bin/sh\nprintf '%s'\n`.replace('%s', ENVELOPE('grok ok').replace(/'/g, "'\\''")));
+  await writeFile(grok, `#!/bin/sh\ncat > /dev/null\nprintf '%s'\n`.replace('%s', ENVELOPE('grok ok').replace(/'/g, "'\\''")));
   await chmod(grok, 0o755);
 
   const roster = (codexBin) => ({
@@ -222,7 +229,7 @@ test('a stale verdict from a previous attempt is never counted as this round', a
 
   // Attempt 1: codex writes a real verdict.
   const writer = join(home, 'writer');
-  await writeFile(writer, `#!/bin/sh\nprintf '{"verdict":"approve","blocking":[],"non_blocking":[],"one_line_summary":"STALE-FROM-ATTEMPT-1"}' > "$2"\n`);
+  await writeFile(writer, `#!/bin/sh\ncat > /dev/null\nprintf '{"verdict":"approve","blocking":[],"non_blocking":[],"one_line_summary":"STALE-FROM-ATTEMPT-1"}' > "$2"\n`);
   await chmod(writer, 0o755);
   const cfg1 = join(home, 'cfg1.json');
   await writeFile(cfg1, JSON.stringify(roster(writer)));
@@ -279,8 +286,8 @@ test('a multi-byte verdict survives chunk boundaries intact', async () => {
   for (const [i, id] of ['a', 'b'].entries()) {
     const bin = join(home, `r-${id}`);
     await writeFile(bin, i === 0
-      ? `#!/bin/sh\ncat ${JSON.stringify(join(home, 'verdict.json'))}\n`
-      : `#!/bin/sh\nprintf '%s'\n`.replace('%s', ENVELOPE('ok').replace(/'/g, "'\\''")));
+      ? `#!/bin/sh\ncat > /dev/null\ncat ${JSON.stringify(join(home, 'verdict.json'))}\n`
+      : `#!/bin/sh\ncat > /dev/null\nprintf '%s'\n`.replace('%s', ENVELOPE('ok').replace(/'/g, "'\\''")));
     await chmod(bin, 0o755);
     reviewers.push({ id, label: id, bin, vendor: `v${i}`, promptVia: 'stdin', outputVia: 'stdout', args: [],
       probe: { dropFlagsWithValue: [], dropFlags: [], extraArgs: [], promptVia: 'argv' } });
