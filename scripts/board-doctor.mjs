@@ -116,7 +116,13 @@ function main() {
   const cfgPath = ci !== -1 ? argv[ci + 1] : join(ROOT, 'config/reviewers.json');
 
   console.log(`skill root: ${ROOT}`);
-  if (basename(ROOT) !== 'board') {
+
+  // Judge the install name from the path this was INVOKED through, not from the
+  // realpath'd physical directory. Installing correctly means symlinking the checkout to
+  // .../skills/board, in which case the physical directory is still called
+  // code-agent-board — checking that would warn every properly-installed user.
+  const invokedRoot = process.argv[1] ? resolve(dirname(process.argv[1]), '..') : ROOT;
+  if (basename(invokedRoot) !== 'board') {
     console.log(
       `⚠️  this directory is named "${basename(ROOT)}", but the skill must be installed as "board"\n` +
         '   (the /board command and the skill frontmatter both depend on that name).\n' +

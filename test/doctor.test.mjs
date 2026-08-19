@@ -12,7 +12,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -169,4 +169,28 @@ test('doctor actually runs when invoked through a symlinked install', async () =
 
   assert.notEqual(r.stdout.trim(), '', 'doctor produced no output at all through the symlink');
   assert.equal(r.status, 1, 'doctor must still fail closed when reached through a symlink');
+});
+
+test('no name warning when installed correctly as .../skills/board', async () => {
+  // The check must look at the path the doctor was invoked through, not the realpath'd
+  // physical directory. Installing correctly means symlinking a checkout called
+  // code-agent-board to .../skills/board — judging by the physical name warns every
+  // user who followed the README exactly.
+  const dir = await mkdtemp(join(tmpdir(), 'board-named-'));
+  created.push(dir);
+  const skills = join(dir, 'skills');
+  await mkdir(skills, { recursive: true });
+  await symlink(ROOT, join(skills, 'board'));
+
+  const p = await fixtureConfig([]);
+  const r = spawnSync(process.execPath, [join(skills, 'board/scripts/board-doctor.mjs'), '--config', p], { encoding: 'utf8' });
+
+  assert.doesNotMatch(r.stdout, /must be installed as/, 'a correct install must not be warned about');
+  assert.equal(r.status, 0, 'no reviewers configured and nothing wrong → exit 0');
+});
+
+test('the name warning still fires when the directory is not called board', async () => {
+  const p = await fixtureConfig([]);
+  const r = spawnSync(process.execPath, [join(ROOT, 'scripts/board-doctor.mjs'), '--config', p], { encoding: 'utf8' });
+  assert.match(r.stdout, /must be installed as/);
 });

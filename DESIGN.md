@@ -278,6 +278,31 @@ one CLI's number as the round's total would be understating it silently.
 | diff > 2000 lines | warn and get confirmation before convening |
 | no uncommitted changes / not a git repo | exit with the reason |
 
+### Measured runtime behaviour on a large diff
+
+Reviewing this repository's own 3,468-line extraction (a 233 KB brief) produced numbers
+worth knowing before you point board at something big:
+
+| | measured |
+|---|---|
+| codex, from spawn to verdict | **13 min 49 s** |
+| grok, same brief | **12 s** — and it returned a placeholder verdict, having done no real work |
+| headroom against `timeoutMs` (900 s) | **71 seconds** |
+
+Three consequences:
+
+1. **"5-8 minutes" holds for ordinary changes, not for this size.** A diff of a few
+   hundred lines finishes in that window; a few thousand does not.
+2. **`timeoutMs` is the real ceiling on diff size.** At 3,468 lines codex came within
+   71 seconds of being SIGKILLed, which would have made the round `inconclusive` after
+   14 minutes of waiting. This is why SKILL.md asks the user before convening above
+   ~2,000 lines — and if you routinely review changes that large, raise `timeoutMs`.
+3. **A reviewer can degrade rather than fail on a large brief.** grok did not error, time
+   out, or refuse; it spent one turn and returned a schema-valid empty verdict. Nothing in
+   the transport layer can catch that — which is exactly why the verdict validation in
+   §13, #20 has to exist. Watch the per-reviewer timings in the transcripts: a reviewer
+   that answers in seconds on a large brief has not read it.
+
 **The principle underneath all of it: no failure may ever silently become a pass.**
 `unavailable` / `timeout` / `parse_error` never count as an approve vote. Reporting "this
 round did not happen" beats letting the user believe the change was reviewed — this is

@@ -11,9 +11,15 @@ If you add a code path that can fail, make sure the failure cannot be mistaken f
 — and assert that in a test. Several existing tests exist purely to pin this down
 (`tally.test.mjs`, `doctor.test.mjs`).
 
-**Steps that rely on an agent remembering will be skipped.** Three of the eleven defects
-in DESIGN.md §13 share this root cause. If a step is required for safety or correctness,
-it belongs in code, not in prose in SKILL.md.
+**Steps that rely on an agent remembering will be skipped.** Three of the defects in
+DESIGN.md §13 share exactly this root cause. If a step is required for safety or
+correctness, it belongs in code, not in prose in SKILL.md.
+
+**Resolve contradictions toward caution.** When two signals disagree — a declared verdict
+versus the findings actually listed, a config versus a probe — the safe reading wins, and
+anything unusable is reported as unusable rather than resolved into a pass. Getting this
+backwards in one direction is how an empty verdict once became an approve vote
+(DESIGN.md §13, #20).
 
 ## Getting set up
 
@@ -67,3 +73,11 @@ This repository is the public home of a skill that also lives in the author's pr
 setup. The intent is for the public repository to become the single source, with any local
 configuration kept as an untracked override of `config/reviewers.json`. If you notice the
 two drifting in a way that affects contributors, please open an issue.
+
+If you keep such an override, note that `--ephemeral` is the setting most likely to differ.
+It ships enabled here, which is the right default for most people: sessions do not
+accumulate on disk and `codex exec resume --last` keeps pointing at your own work. But it
+also makes each round invisible to any tool that measures codex usage by scanning
+`~/.codex/sessions/`, because there is no rollout file to scan. If you track your own token
+spend, drop the flag in your local override — and expect roughly 1 MB per round in
+exchange.

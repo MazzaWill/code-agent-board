@@ -139,9 +139,14 @@ Budget about ten minutes, most of it logging into the two CLIs.
 or just tell Claude "cross-review my changes", "get a second opinion on this from another
 model", "review this plan before I build it".
 
-A round takes **5–8 minutes** at `xhigh` reasoning effort, with no output until both
-reviewers finish. Cost is roughly **$0.01–0.04 per round** as reported by grok; codex does
-not report cost, so the real figure is higher.
+A round takes **5–8 minutes** at `xhigh` reasoning effort for an ordinary change, with no
+output until both reviewers finish. Large diffs take considerably longer — measured on
+this repository's own 3,468-line extraction, codex needed **13m49s**, which is only 71
+seconds short of the default 900-second timeout. Above ~2,000 lines board asks before
+convening; if you regularly review changes that big, raise `timeoutMs` in the config.
+
+Cost is roughly **$0.01–0.04 per round** as reported by grok; codex does not report cost,
+so the real figure is higher.
 
 This is worth it for substantial changes and real plans. It does not pay for typo fixes.
 
