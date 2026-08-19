@@ -153,3 +153,59 @@ test('--intent that cannot be read is explained', { skip: process.getuid?.() ===
   assert.match(r.stderr, /cannot be read/);
   assert.doesNotMatch(r.stderr, /crashed/);
 });
+
+test('importing the module registers no signal handlers', () => {
+  // Handlers at module scope are inherited by every importer — `node --test` included,
+  // where a cancellation would print board's message and exit 130 instead of running the
+  // runner's own teardown. This file's own module already states that rule for argv
+  // parsing; it applies just as much to signals. (args.test.mjs imports board-round, so
+  // this assertion is about the very act of loading it here.)
+  assert.equal(process.listenerCount('SIGINT'), 0);
+  assert.equal(process.listenerCount('SIGTERM'), 0);
+});
+
+test('a non-numeric or zero timeoutMs is rejected with the offending value named', async () => {
+  // The shipped config invites editing this field and it goes straight to setTimeout.
+  // "15m" becomes NaN and fires after 1ms, killing every reviewer before it reads a byte
+  // and reporting "exceeded NaNs" — which reads as "both CLIs hung", not "your config is
+  // a string". 0, meaning "no timeout" to a human, survives ?? and does the same.
+  const dir = await mkdtemp(join(tmpdir(), 'board-timeout-'));
+  execFileSync('git', ['-C', dir, 'init', '-q']);
+  await writeFile(join(dir, 'a.txt'), 'x\n');
+  execFileSync('git', ['-C', dir, 'add', '-A']);
+  execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'i']);
+  await writeFile(join(dir, 'a.txt'), 'y\n');
+  await writeFile(join(dir, '..', 'intent.md'), 'x\n');
+
+  const { readFileSync } = await import('node:fs');
+  const base = JSON.parse(readFileSync(join(ROOT, 'config/reviewers.json'), 'utf8'));
+
+  for (const bad of ['15m', 0, -1, 1.5, 2 ** 40]) {
+    const cfg = join(dir, '..', `t-${String(bad).replace(/\W/g, '')}.json`);
+    await writeFile(cfg, JSON.stringify({ ...base, timeoutMs: bad }));
+    const r = spawnSync(
+      process.execPath,
+      [ROUND, '--repo', dir, '--round', '1', '--intent', join(dir, '..', 'intent.md'), '--config', cfg],
+      { encoding: 'utf8' },
+    );
+    assert.equal(r.status, 2, `timeoutMs ${JSON.stringify(bad)} should be refused`);
+    assert.match(r.stderr, /timeoutMs must be a positive integer/);
+  }
+});
+
+test('--repo must be the repository root, not a subdirectory', async () => {
+  // git ls-files --others is scoped to the cwd while git diff HEAD covers the whole
+  // repository, so a subdirectory produces a brief with the repo-wide diff and NO
+  // untracked files — silently omitting exactly what this module exists to include.
+  const dir = await mkdtemp(join(tmpdir(), 'board-subdir-'));
+  execFileSync('git', ['-C', dir, 'init', '-q']);
+  await mkdir(join(dir, 'pkg'));
+  await writeFile(join(dir, 'a.txt'), 'x\n');
+  execFileSync('git', ['-C', dir, 'add', '-A']);
+  execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'i']);
+
+  const r = spawnSync(process.execPath, [ROUND, '--repo', join(dir, 'pkg'), '--stat'], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /must be the repository root/);
+  assert.match(r.stderr, /Use: --repo/, 'the error should give the path that works');
+});

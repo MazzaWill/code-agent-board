@@ -13,7 +13,12 @@ import { validateReviewerConfig } from '../scripts/reviewer-config.mjs';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shipped = createRequire(import.meta.url)(join(ROOT, 'config/reviewers.json')).reviewers;
 
-const rv = (id, bin, extra = {}) => ({ id, bin, label: id, args: [], ...extra });
+// A minimally valid reviewer. outputVia/promptVia are required now: they select a parser
+// and decide whether stdin is written, and a typo in either used to surface as a TypeError
+// inside a child-process callback after both reviewers had been billed.
+const rv = (id, bin, extra = {}) => ({
+  id, bin, label: id, args: [], outputVia: 'stdout', promptVia: 'stdin', ...extra,
+});
 
 test('the shipped configuration is valid', () => {
   assert.equal(validateReviewerConfig(shipped).ok, true);
@@ -115,4 +120,26 @@ test('the vendor rule applies to the roster as a whole, not to each pair', () =>
     false,
     'three entries from one vendor is still one model reviewing three times',
   );
+});
+
+test('an invalid outputVia or promptVia is rejected', () => {
+  // Both are dynamic lookups on untrusted config. A typo produced a TypeError inside a
+  // child callback — unreachable by main().catch — after both reviewers had run and been
+  // paid for: no transcript, no summary, exit 1. Prototype keys are worse: "constructor"
+  // resolves to a callable and gets misreported as a parse_error.
+  for (const bad of ['stdout_typo', 'constructor', '__proto__', undefined, 42]) {
+    const r = validateReviewerConfig([rv('a', 'x', { outputVia: bad }), rv('b', 'y')]);
+    assert.equal(r.ok, false, `outputVia ${JSON.stringify(bad)} must be rejected`);
+  }
+  for (const bad of ['stdin_typo', 'constructor', undefined]) {
+    const r = validateReviewerConfig([rv('a', 'x', { promptVia: bad }), rv('b', 'y')]);
+    assert.equal(r.ok, false, `promptVia ${JSON.stringify(bad)} must be rejected`);
+  }
+  assert.equal(validateReviewerConfig([rv('a', 'x'), rv('b', 'y')]).ok, true);
+});
+
+test('a reviewer without an args array is rejected', () => {
+  const r = validateReviewerConfig([rv('a', 'x', { args: undefined }), rv('b', 'y')]);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /args/);
 });

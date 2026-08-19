@@ -129,7 +129,8 @@ test('doctor exits non-zero when a reviewer cannot be verified', async () => {
   // The iron law, enforced end to end: an unverifiable reviewer must never let the run
   // report success. The old code printed a warning and exited 0.
   const p = await fixtureConfig([
-    { id: 'mystery', label: 'mystery', bin: 'git', args: ['--version'] }, // real binary, no probe block
+    { id: 'mystery', label: 'mystery', bin: 'git', args: ['--version'], outputVia: 'stdout', promptVia: 'stdin' },
+    { id: 'other', label: 'other', bin: 'git', args: ['--version'], outputVia: 'stdout', promptVia: 'stdin', vendor: 'elsewhere' },
   ]);
   const r = spawnSync(process.execPath, [DOCTOR, '--config', p], { encoding: 'utf8' });
   assert.equal(r.status, 1, `expected exit 1, got ${r.status}. stdout:\n${r.stdout}`);
@@ -138,10 +139,7 @@ test('doctor exits non-zero when a reviewer cannot be verified', async () => {
 
 test('doctor exits non-zero when a reviewer binary is missing', async () => {
   const p = await fixtureConfig([
-    {
-      id: 'ghost', label: 'ghost', bin: 'definitely-not-a-real-binary-9f3a2b', args: ['-m', 'x'],
-      probe: { dropFlagsWithValue: [], dropFlags: [], extraArgs: [], promptVia: 'argv' },
-    },
+    TWO_MISSING[0], TWO_MISSING[1],
   ]);
   const r = spawnSync(process.execPath, [DOCTOR, '--config', p], { encoding: 'utf8' });
   assert.equal(r.status, 1);
@@ -160,10 +158,7 @@ test('doctor actually runs when invoked through a symlinked install', async () =
   await symlink(ROOT, link);
 
   const p = await fixtureConfig([
-    {
-      id: 'ghost', label: 'ghost', bin: 'definitely-not-a-real-binary-9f3a2b', args: ['-m', 'x'],
-      probe: { dropFlagsWithValue: [], dropFlags: [], extraArgs: [], promptVia: 'argv' },
-    },
+    TWO_MISSING[0], TWO_MISSING[1],
   ]);
   const r = spawnSync(process.execPath, [join(link, 'scripts/board-doctor.mjs'), '--config', p], { encoding: 'utf8' });
 
@@ -175,8 +170,10 @@ test('doctor actually runs when invoked through a symlinked install', async () =
 // config with fewer is now itself a failure — see below.
 const TWO_MISSING = [
   { id: 'g1', label: 'g1', bin: 'definitely-not-a-real-binary-9f3a2b', args: ['-m', 'x'],
+    outputVia: 'stdout', promptVia: 'stdin',
     probe: { dropFlagsWithValue: [], dropFlags: [], extraArgs: [], promptVia: 'argv' } },
   { id: 'g2', label: 'g2', bin: 'definitely-not-a-real-binary-9f3a2c', args: ['-m', 'y'],
+    outputVia: 'stdout', promptVia: 'stdin',
     probe: { dropFlagsWithValue: [], dropFlags: [], extraArgs: [], promptVia: 'argv' } },
 ];
 

@@ -50,14 +50,22 @@ function killTree(child) {
 // Ctrl-C must not leave two xhigh reasoning runs going in the background. Without this the
 // operator sees their prompt return and assumes the round was cancelled, while both
 // reviewers keep working and keep charging.
-for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => {
-    const stopped = running.size;
-    for (const child of running) killTree(child);
-    running.clear();
-    process.stderr.write(`\nCancelled — stopped ${stopped} reviewer process group(s).\n`);
-    process.exit(130);
-  });
+//
+// Installed from main(), never at module scope. Registering handlers on import means every
+// importer inherits them — `node --test` included, where a cancellation would print
+// board's message and exit 130 instead of running the test runner's own teardown. This
+// file already states that rule about argv parsing a few lines down; it applies just as
+// much to signals.
+function installCancellation() {
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.on(signal, () => {
+      const stopped = running.size;
+      for (const child of running) killTree(child);
+      running.clear();
+      process.stderr.write(`\nCancelled — stopped ${stopped} reviewer process group(s).\n`);
+      process.exit(130);
+    });
+  }
 }
 
 // Strict argument parsing. The lenient version silently ignored anything it did not
@@ -138,6 +146,20 @@ function runReviewer(rv, ctx) {
     s = inject(s, '{promptFile}', ctx.promptFile);
     return s;
   });
+
+  // board-doctor refuses to probe when a placeholder survives substitution; the path that
+  // actually costs money had no such check. A typo like {outfile} (wrong case) makes codex
+  // write its verdict to a file literally named "{outfile}" in the repository root —
+  // outside the ignore rule, so it shows up as untracked and is attached in full to the
+  // NEXT round's brief — while board reports "output was empty" and the protocol says to
+  // retry, dropping another stray file each time.
+  const unsubstituted = args.find((a) => /\{[a-zA-Z]+\}/.test(a));
+  if (unsubstituted) {
+    return Promise.resolve({
+      id: rv.id, label: rv.label, status: 'unavailable',
+      reason: `unsubstituted placeholder ${JSON.stringify(unsubstituted)} in args — check config/reviewers.json for a typo`,
+    });
+  }
 
   return new Promise((done) => {
     let stdout = '';
@@ -307,6 +329,23 @@ function assertReviewable(repo) {
   if (spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel']).status !== 0) {
     die(`${repo} is not a git repository — board builds its brief from git diff`);
   }
+  // The repository root, not a subdirectory of it. `git ls-files --others` is scoped to the
+  // cwd while `git diff HEAD` covers the whole repository, so reviewing from a subdirectory
+  // produces a brief with the repo-wide diff and NO untracked files — silently omitting
+  // exactly what this tool exists to include. The ignore rule git-artifacts writes is
+  // anchored to the toplevel too, so the other configuration dies with an instruction the
+  // operator cannot act on.
+  const top = spawnSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+  if (top.status === 0) {
+    const toplevel = realpathSync(top.stdout.trim());
+    if (realpathSync(repo) !== toplevel) {
+      die(
+        `--repo must be the repository root, not a subdirectory of it (got ${repo}).\n` +
+          `Use: --repo ${toplevel}`,
+      );
+    }
+  }
+
   if (spawnSync('git', ['-C', repo, 'rev-parse', '--verify', 'HEAD']).status !== 0) {
     die(
       `${repo} has no commits yet — board diffs against HEAD, so make at least one commit first ` +
@@ -316,6 +355,8 @@ function assertReviewable(repo) {
 }
 
 async function main() {
+  installCancellation();
+
   const parsed = parseArgs(process.argv.slice(2));
   if (!parsed.ok) die(parsed.reason);
   ARGS = parsed.args;
@@ -353,6 +394,16 @@ async function main() {
   // that cannot ever work.
   const roster = validateReviewerConfig(cfg.reviewers);
   if (!roster.ok) die(`${cfgPath}: ${roster.reason}`);
+
+  // `_timeoutNote` in the shipped config invites the operator to edit this field, and it is
+  // handed straight to setTimeout. "15m" or "900s" — a natural mistake for a field named
+  // ...Ms — becomes NaN and fires after 1ms, killing every reviewer before it reads a byte
+  // and reporting "exceeded NaNs", which reads as "both CLIs hung" rather than "your config
+  // is a string". `0`, meaning "no timeout" to a human, survives ?? and does the same.
+  const timeoutMs = cfg.timeoutMs ?? 300000;
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2 ** 31 - 1) {
+    die(`${cfgPath}: timeoutMs must be a positive integer below 2^31 milliseconds, got ${JSON.stringify(cfg.timeoutMs)}`);
+  }
 
   const schemaPath = join(ROOT, 'config/verdict.schema.json');
   const schemaInline = readFileSync(schemaPath, 'utf8');
@@ -447,7 +498,7 @@ async function main() {
 
   const ctx = {
     repo, prompt, promptFile, schemaPath, schemaInline,
-    timeoutMs: cfg.timeoutMs ?? 300000,
+    timeoutMs,
     outFile: (id) => join(dir, `${id}.json`),
     transcript: (id) => join(dir, `${id}.md`),
   };

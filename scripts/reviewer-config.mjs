@@ -64,6 +64,26 @@ export function validateReviewerConfig(reviewers) {
     }
   }
 
+  // outputVia selects a parser by dynamic lookup, and promptVia decides whether stdin is
+  // written. Neither was validated anywhere, so a typo produced a TypeError inside a
+  // child-process callback — out of reach of main().catch — after both reviewers had run
+  // and been billed: no transcript, no summary, exit 1 instead of die()'s 2, and the other
+  // reviewer's completed verdict discarded. Prototype keys are the nastier variant:
+  // outputVia "constructor" resolves to a callable and is misreported as a parse_error.
+  const OUTPUT_VIA = ['stdout', 'file'];
+  const PROMPT_VIA = ['stdin', 'file'];
+  for (const r of reviewers) {
+    if (!OUTPUT_VIA.includes(r.outputVia)) {
+      return { ok: false, reason: `reviewer "${r.id}" has outputVia ${JSON.stringify(r.outputVia)}; valid values are ${OUTPUT_VIA.join(' | ')}` };
+    }
+    if (!PROMPT_VIA.includes(r.promptVia)) {
+      return { ok: false, reason: `reviewer "${r.id}" has promptVia ${JSON.stringify(r.promptVia)}; valid values are ${PROMPT_VIA.join(' | ')}` };
+    }
+    if (!Array.isArray(r.args)) {
+      return { ok: false, reason: `reviewer "${r.id}" has no args array` };
+    }
+  }
+
   const vendors = new Set(reviewers.map(vendorOf));
   if (vendors.size < 2) {
     return {
