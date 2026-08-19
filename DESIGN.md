@@ -212,7 +212,8 @@ code-agent-board/
    ├─ modes.test.mjs           (mode × language) matrix over every prompt invariant
    ├─ doctor.test.mjs          probe derivation, model parity, "unverifiable must fail"
    ├─ reviewer-config.test.mjs count, distinct ids, and at least two vendors
-   ├─ args.test.mjs            strict flag parsing; a typo in a flag NAME must fail loudly
+   ├─ args.test.mjs            strict flag parsing and repository preflight
+   ├─ reviewer-lifecycle.test.mjs  a reviewer that exits with a grandchild holding the pipes
    ├─ verdict.test.mjs
    ├─ tally.test.mjs
    └─ summary.test.mjs

@@ -186,7 +186,8 @@ code-agent-board/
    ├─ modes.test.mjs           (模式 × 语言) 矩阵，断言每份 prompt 都带 {{BRIEF}} 和两条约束
    ├─ doctor.test.mjs          探针派生与模型一致性，含「不可验证必须失败」
    ├─ reviewer-config.test.mjs 条目数、id 唯一性、至少两个厂商
-   ├─ args.test.mjs            严格参数解析；参数名拼错必须大声失败
+   ├─ args.test.mjs            严格参数解析与仓库前置检查
+   ├─ reviewer-lifecycle.test.mjs  评审员退出但孙子进程持有管道的情形
    ├─ verdict.test.mjs
    ├─ tally.test.mjs
    └─ summary.test.mjs

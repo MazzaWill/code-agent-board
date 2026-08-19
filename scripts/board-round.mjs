@@ -31,7 +31,7 @@ const PARSERS = { stdout: parseGrokOutput, file: parseCodexOutput };
 // recognise, so `--mdoe plan` reviewed a plan with the code prompt and very likely
 // approved it — the exact silent-fallback failure that resolveMode refuses to allow one
 // layer down. A typo in a flag NAME has to fail as loudly as a typo in its value.
-const VALUE_FLAGS = new Set(['repo', 'round', 'mode', 'intent', 'contested', 'lang']);
+const VALUE_FLAGS = new Set(['repo', 'round', 'mode', 'intent', 'contested', 'lang', 'config']);
 const BOOL_FLAGS = new Set(['stat']);
 
 export function parseArgs(argv) {
@@ -135,29 +135,36 @@ function runReviewer(rv, ctx) {
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
 
-    child.on('error', (e) => {
+    let settled = false;
+    let graceTimer = null;
+    const settle = (result) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      stderr += `\n[spawn error] ${e.message}\n`;
-      writeTranscript();
-      done({
-        id: rv.id, label: rv.label, status: 'unavailable',
-        reason: `${rv.bin} could not start: ${e.message}`,
-      });
-    });
+      if (graceTimer) clearTimeout(graceTimer);
 
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      writeTranscript();
+      // Tear the pipes down explicitly. A grandchild still holding their write ends keeps
+      // our read ends alive as active handles, so without this the whole board-round
+      // process sits there after every reviewer has finished and the summary has printed —
+      // the round is done, the shell just never gets its prompt back.
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      child.stdin?.destroy();
 
+      writeTranscript();
+      done(result);
+    };
+
+    const conclude = (code) => {
       if (timedOut) {
-        return done({
+        return settle({
           id: rv.id, label: rv.label, status: 'timeout',
           reason: `exceeded ${ctx.timeoutMs / 1000}s`,
         });
       }
       if (code !== 0) {
         const tail = stderr.trim().split('\n').slice(-3).join(' ');
-        return done({
+        return settle({
           id: rv.id, label: rv.label, status: 'unavailable',
           reason: `exit code ${code}: ${tail}`,
         });
@@ -169,13 +176,40 @@ function runReviewer(rv, ctx) {
 
       const parsed = PARSERS[rv.outputVia](raw);
       if (parsed.status !== 'ok') {
-        return done({ id: rv.id, label: rv.label, status: 'parse_error', reason: parsed.reason });
+        return settle({ id: rv.id, label: rv.label, status: 'parse_error', reason: parsed.reason });
       }
-      done({
+      settle({
         id: rv.id, label: rv.label, status: 'ok', costUsd: parsed.costUsd,
         ...normalizeVerdict(parsed.data),
       });
+    };
+
+    child.on('error', (e) => {
+      stderr += `\n[spawn error] ${e.message}\n`;
+      settle({
+        id: rv.id, label: rv.label, status: 'unavailable',
+        reason: `${rv.bin} could not start: ${e.message}`,
+      });
     });
+
+    // Listen to BOTH exit and close, and let whichever arrives first win.
+    //
+    // `close` alone is a hang waiting to happen: it fires only once every stdio stream is
+    // closed, and a grandchild that inherited them keeps them open after the reviewer
+    // itself has exited. Both reviewer CLIs are agentic and routinely start helper
+    // processes, so a reviewer that answered in 30 seconds would leave the round waiting
+    // out the full timeout and then be recorded as a timeout — a real answer thrown away
+    // and 15 minutes lost. Verified: with a child that exits while a grandchild holds the
+    // pipes, `exit` fires immediately and `close` never arrives.
+    //
+    // `exit` alone would be wrong in the opposite direction: it can arrive before the last
+    // chunks of stdout have been read, truncating the verdict. So exit starts a short
+    // grace period for the streams to drain, and close settles immediately when it comes.
+    const STDIO_GRACE_MS = 5000;
+    child.on('exit', (code) => {
+      graceTimer = setTimeout(() => conclude(code), STDIO_GRACE_MS);
+    });
+    child.on('close', (code) => conclude(code));
 
     if (rv.promptVia === 'stdin') {
       child.stdin.write(ctx.prompt);
@@ -225,14 +259,22 @@ async function main() {
   const selected = resolveMode(arg('mode', null), arg('lang', null));
   if (!selected.ok) die(selected.reason);
 
-  const cfg = JSON.parse(readFileSync(join(ROOT, 'config/reviewers.json'), 'utf8'));
+  // --config mirrors board-doctor's seam: it makes this entry point testable end to end,
+  // and lets anyone try an alternate roster without editing the shipped file.
+  const cfgPath = arg('config', join(ROOT, 'config/reviewers.json'));
+  let cfg;
+  try {
+    cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+  } catch (e) {
+    die(`cannot read reviewer config ${cfgPath}: ${e.message}`);
+  }
 
   // Reject an unusable roster before spending anything. Discovering it after the round
   // would mean paying for reviews, reporting an ambiguous outcome, and — because the
   // protocol treats that outcome as an infrastructure hiccup — retrying a configuration
   // that cannot ever work.
   const roster = validateReviewerConfig(cfg.reviewers);
-  if (!roster.ok) die(`config/reviewers.json: ${roster.reason}`);
+  if (!roster.ok) die(`${cfgPath}: ${roster.reason}`);
 
   const schemaPath = join(ROOT, 'config/verdict.schema.json');
   const schemaInline = readFileSync(schemaPath, 'utf8');
