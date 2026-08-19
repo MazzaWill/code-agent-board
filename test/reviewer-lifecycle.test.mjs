@@ -84,7 +84,12 @@ test('a reviewer that exits while a grandchild holds the pipes does not hang the
   );
   const elapsed = Date.now() - started;
 
-  assert.notEqual(r.signal, 'SIGTERM', `round did not finish within ${ALLOWED_MS}ms — it hung`);
+  // Check the exit STATUS, not the signal. Since board installs a SIGTERM handler, the
+  // kill that spawnSync sends on timeout is caught and turned into exit(130) — so
+  // `signal` is null in the hang case too, and asserting on it would pass exactly when
+  // the test is meant to fail. (Verified by reverting the fix: this test goes red, the
+  // signal assertion alone would not have.)
+  assert.equal(r.status, 0, `round did not finish cleanly within ${ALLOWED_MS}ms — it hung (signal=${r.signal})`);
   assert.ok(elapsed < ALLOWED_MS, `round took ${elapsed}ms, nowhere near the ${TIMEOUT_MS}ms timeout`);
   assert.match(r.stdout, /approved \(unanimous\)/, 'the verdicts were collected correctly');
   assert.doesNotMatch(r.stdout, /timeout/, 'a reviewer that answered must not be recorded as a timeout');
@@ -102,8 +107,9 @@ test('the process exits on its own, rather than being held open by the pipes', a
     { encoding: 'utf8', timeout: ALLOWED_MS },
   );
 
-  assert.equal(r.signal, null, 'the process had to be killed — it never exited by itself');
-  assert.equal(r.status, 0);
+  // status, again: a caught SIGTERM produces status 130 with signal null, so only the
+  // status distinguishes "exited by itself" from "was killed and handled it gracefully".
+  assert.equal(r.status, 0, `the process did not exit by itself (status=${r.status}, signal=${r.signal})`);
 });
 
 test('the elapsed time of each reviewer is recorded in its transcript', async () => {
@@ -290,4 +296,48 @@ test('a multi-byte verdict survives chunk boundaries intact', async () => {
 
   assert.ok(!issue.includes('�'), 'the verdict contains replacement characters');
   assert.equal(issue, long, 'the verdict was corrupted in transit');
+});
+
+test('a reviewer that never received the brief cannot vote', async () => {
+  // Nothing used to verify the brief arrived: stdin errors were swallowed wholesale and
+  // write()'s completion was never observed. A reviewer that exits early — expired auth,
+  // a bad flag, a dead helper — answers about a change it never saw, and its vote counts.
+  // prompts/*.md put {{BRIEF}} on the LAST line, so a partial write delivers every
+  // instruction and only a prefix of the diff: the worst possible truncation point.
+  const home = await mkdtemp(join(tmpdir(), 'board-undelivered-'));
+  const dir = join(home, 'repo');
+  await mkdir(dir);
+  await scratchRepo(dir);
+  await writeFile(join(home, 'intent.md'), 'why\n');
+  // Large enough that the write cannot fit in the pipe buffer in one go.
+  await writeFile(join(dir, 'big.txt'), 'x'.repeat(300000));
+
+  const liar = join(home, 'liar');
+  await writeFile(liar, `#!/bin/sh\nprintf '%s'\nexit 0\n`.replace('%s', ENVELOPE('looks fine to me').replace(/'/g, "'\\''")));
+  await chmod(liar, 0o755);
+
+  const honest = join(home, 'honest');
+  await writeFile(honest, `#!/bin/sh\ncat > /dev/null\nprintf '%s'\n`.replace('%s', ENVELOPE('read it properly').replace(/'/g, "'\\''")));
+  await chmod(honest, 0o755);
+
+  const cfg = join(home, 'reviewers.json');
+  await writeFile(cfg, JSON.stringify({
+    timeoutMs: TIMEOUT_MS,
+    reviewers: [
+      { id: 'liar', label: 'liar', bin: liar, vendor: 'v1', promptVia: 'stdin', outputVia: 'stdout', args: [],
+        probe: { dropFlagsWithValue: [], dropFlags: [], extraArgs: [], promptVia: 'argv' } },
+      { id: 'honest', label: 'honest', bin: honest, vendor: 'v2', promptVia: 'stdin', outputVia: 'stdout', args: [],
+        probe: { dropFlagsWithValue: [], dropFlags: [], extraArgs: [], promptVia: 'argv' } },
+    ],
+  }));
+
+  const r = spawnSync(
+    process.execPath,
+    [ROUND, '--repo', dir, '--round', '1', '--intent', join(home, 'intent.md'), '--config', cfg],
+    { encoding: 'utf8', timeout: ALLOWED_MS },
+  );
+
+  assert.match(r.stdout, /brief was not delivered/, 'the undelivered reviewer must be reported as such');
+  assert.doesNotMatch(r.stdout, /looks fine to me/, 'its verdict must not be counted');
+  assert.doesNotMatch(r.stdout, /approved \(unanimous\)/);
 });

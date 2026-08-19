@@ -57,7 +57,10 @@ function killTree(child) {
 // file already states that rule about argv parsing a few lines down; it applies just as
 // much to signals.
 function installCancellation() {
-  for (const signal of ['SIGINT', 'SIGTERM']) {
+  // SIGHUP matters specifically because of detached: setsid() removes the controlling
+  // terminal, so closing the terminal or dropping an SSH session no longer HUPs the
+  // reviewers for free the way a shared foreground process group used to.
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     process.on(signal, () => {
       const stopped = running.size;
       for (const child of running) killTree(child);
@@ -123,6 +126,10 @@ function has(name) {
 }
 
 function die(msg) {
+  // Reviewers are detached, so nothing reaps them if we exit without asking. Any die()
+  // after spawning would otherwise leave xhigh reasoning runs working and billing.
+  for (const child of running) killTree(child);
+  running.clear();
   process.stderr.write(`${msg}\n`);
   process.exit(2);
 }
@@ -197,7 +204,11 @@ function runReviewer(rv, ctx) {
 
     // detached puts the reviewer in its own process group so killTree can take the helpers
     // with it. We deliberately do NOT unref() — this round is waiting on the result.
-    const child = spawn(rv.bin, args, { cwd: ctx.repo, detached: true });
+    // Only give a pipe to reviewers that actually read one. grok is configured
+    // promptVia: 'file', and an open stdin that is never written and never closed makes a
+    // CLI using the common `if [ ! -t 0 ]; then cat; fi` idiom block until the timeout.
+    const stdio = rv.promptVia === 'stdin' ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'];
+    const child = spawn(rv.bin, args, { cwd: ctx.repo, detached: true, stdio });
     running.add(child);
 
     const timer = setTimeout(() => {
@@ -217,11 +228,13 @@ function runReviewer(rv, ctx) {
     child.stdout.on('data', (d) => { stdout += d; });
     child.stderr.on('data', (d) => { stderr += d; });
 
-    // EPIPE on stdin is expected and harmless: a reviewer may exit without draining the
-    // prompt, and we close the pipe ourselves in settle(). Without a listener that error
-    // is unhandled and takes the whole process down with exit code 1 — which is exactly
-    // what happened on Linux while macOS, with different timing, stayed green.
-    child.stdin?.on('error', () => {});
+    // Whether the brief actually reached the reviewer. Swallowing stdin errors outright —
+    // as the first version of this listener did — turns "the reviewer exited before
+    // reading the change" into a silently counted vote. prompts/*.md put {{BRIEF}} on the
+    // LAST line, so a partial write delivers every instruction and only a prefix of the
+    // diff: the worst possible place to truncate.
+    let promptError = null;
+    child.stdin?.on('error', (e) => { promptError ??= e; });
 
     let settled = false;
     let graceTimer = null;
@@ -253,6 +266,14 @@ function runReviewer(rv, ctx) {
         return settle({
           id: rv.id, label: rv.label, status: 'timeout',
           reason: `exceeded ${ctx.timeoutMs / 1000}s`,
+        });
+      }
+      // A reviewer that never received the change cannot have reviewed it, whatever it
+      // returned. This has to outrank a zero exit code.
+      if (promptError) {
+        return settle({
+          id: rv.id, label: rv.label, status: 'unavailable',
+          reason: `the brief was not delivered (${promptError.code ?? promptError.message}) — the reviewer exited or stopped reading before receiving the change`,
         });
       }
       if (code !== 0) {
@@ -312,8 +333,7 @@ function runReviewer(rv, ctx) {
     child.on('close', (code) => conclude(code));
 
     if (rv.promptVia === 'stdin') {
-      child.stdin.write(ctx.prompt);
-      child.stdin.end();
+      child.stdin.end(ctx.prompt, (err) => { if (err) promptError ??= err; });
     }
   });
 }

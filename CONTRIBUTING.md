@@ -6,6 +6,13 @@
 fresh clone with no install step, and the skill must run wherever Node runs. A PR that
 adds a dependency needs to argue why the alternative is impossible.
 
+**Check that a new test actually fails without your fix.** Revert the fix, run the test,
+watch it go red, put the fix back. Twice now a test in this repository asserted on
+something that was true in the failing case too — most recently an assertion on the exit
+*signal*, which a caught SIGTERM turns into a null signal with status 130, so it passed
+precisely when it should have failed. A test that cannot fail is not protection, it is
+decoration.
+
 **Nothing unverifiable may ever report success.** This is the project's central promise.
 If you add a code path that can fail, make sure the failure cannot be mistaken for a pass
 — and assert that in a test. Several existing tests exist purely to pin this down

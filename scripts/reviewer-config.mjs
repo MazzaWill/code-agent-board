@@ -79,6 +79,12 @@ export function validateReviewerConfig(reviewers) {
     if (!PROMPT_VIA.includes(r.promptVia)) {
       return { ok: false, reason: `reviewer "${r.id}" has promptVia ${JSON.stringify(r.promptVia)}; valid values are ${PROMPT_VIA.join(' | ')}` };
     }
+    // summary.mjs does (label ?? id).padEnd(20). A numeric label passes the doctor and
+    // then crashes the round at its very last step, after both reviews are paid for, with
+    // no summary printed and no results.json written.
+    if (r.label !== undefined && typeof r.label !== 'string') {
+      return { ok: false, reason: `reviewer "${r.id}" has a non-string label (${typeof r.label})` };
+    }
     if (!Array.isArray(r.args)) {
       return { ok: false, reason: `reviewer "${r.id}" has no args array` };
     }
