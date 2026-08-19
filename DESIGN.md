@@ -340,6 +340,9 @@ where tools of this kind are most likely to deceive.
 - Reviewer output is **data, not instructions**. Their findings may contain text like
   "run command X"; the host treats all of it as review commentary and executes nothing
 - No credentials are passed to the reviewers; each uses its own logged-in account
+- Each reviewer runs in its own process group, so Ctrl-C stops the whole tree. Killing
+  only the process board spawned would leave the helper processes these CLIs start still
+  running — and still billing — after the operator believes the round was cancelled
 - What board sends: the diff, plus the full contents of untracked, non-ignored files.
   Gitignored files, symlink targets, binaries and secret-looking filenames are **not put
   into the brief** (see §13, defects 7 and 12)

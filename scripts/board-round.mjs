@@ -27,6 +27,39 @@ const ROOT = resolve(HERE, '..');
 
 const PARSERS = { stdout: parseGrokOutput, file: parseCodexOutput };
 
+// Every reviewer still running. Needed because killing the direct child is not enough:
+// these CLIs start helper processes, and those keep running — and keep billing — after
+// the process we spawned is gone. Each reviewer is therefore given its own process group
+// (detached) so the whole tree can be signalled at once.
+const running = new Set();
+
+function killTree(child) {
+  try {
+    // Negative pid targets the group. Falls back to the single process if the group is
+    // already gone, which is the normal race when it exited a moment earlier.
+    process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    try {
+      child.kill('SIGKILL');
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+// Ctrl-C must not leave two xhigh reasoning runs going in the background. Without this the
+// operator sees their prompt return and assumes the round was cancelled, while both
+// reviewers keep working and keep charging.
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    const stopped = running.size;
+    for (const child of running) killTree(child);
+    running.clear();
+    process.stderr.write(`\nCancelled — stopped ${stopped} reviewer process group(s).\n`);
+    process.exit(130);
+  });
+}
+
 // Strict argument parsing. The lenient version silently ignored anything it did not
 // recognise, so `--mdoe plan` reviewed a plan with the code prompt and very likely
 // approved it — the exact silent-fallback failure that resolveMode refuses to allow one
@@ -126,10 +159,14 @@ function runReviewer(rv, ctx) {
           `\n## stdout\n\n${stdout}\n\n## stderr\n\n${stderr}\n`,
       );
 
-    const child = spawn(rv.bin, args, { cwd: ctx.repo });
+    // detached puts the reviewer in its own process group so killTree can take the helpers
+    // with it. We deliberately do NOT unref() — this round is waiting on the result.
+    const child = spawn(rv.bin, args, { cwd: ctx.repo, detached: true });
+    running.add(child);
+
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGKILL');
+      killTree(child);
     }, ctx.timeoutMs);
 
     child.stdout.on('data', (d) => { stdout += d; });
@@ -148,6 +185,8 @@ function runReviewer(rv, ctx) {
       settled = true;
       clearTimeout(timer);
       if (graceTimer) clearTimeout(graceTimer);
+
+      running.delete(child);
 
       // Write the record BEFORE touching the pipes. Tearing them down is the step most
       // likely to misbehave, and the transcript must not be lost to it.

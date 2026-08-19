@@ -120,3 +120,69 @@ test('the elapsed time of each reviewer is recorded in its transcript', async ()
   const transcript = readFileSync(join(dir, '.claude/board/round-1/one.md'), 'utf8');
   assert.match(transcript, /^Elapsed: [0-9.]+s$/m);
 });
+
+test('Ctrl-C stops the reviewers instead of leaving them running', async () => {
+  // Without this, the operator's prompt comes back and they assume the round was
+  // cancelled, while both reviewers keep working — and keep charging — in the background.
+  // Killing the direct child is not enough either: these CLIs start helper processes that
+  // survive it, which is why each reviewer gets its own process group.
+  const home = await mkdtemp(join(tmpdir(), 'board-cancel-'));
+  const dir = join(home, 'repo');
+  await mkdir(dir);
+  await scratchRepo(dir);
+  await writeFile(join(home, 'intent.md'), 'why\n');
+
+  const pidDir = join(home, 'pids');
+  await mkdir(pidDir);
+
+  const reviewers = [];
+  for (const [i, id] of ['a', 'b'].entries()) {
+    const bin = join(home, `slow-${id}`);
+    // Records the pid of a helper it starts, then blocks. The helper is what a plain
+    // child.kill() would miss.
+    await writeFile(bin, `#!/bin/sh\nsleep 300 &\necho $! > ${join(pidDir, id)}\nsleep 300\n`);
+    await chmod(bin, 0o755);
+    reviewers.push({
+      id, label: id, bin, vendor: `v${i}`, promptVia: 'stdin', outputVia: 'stdout', args: [],
+      probe: { dropFlagsWithValue: [], dropFlags: [], extraArgs: [], promptVia: 'argv' },
+    });
+  }
+  const cfg = join(home, 'reviewers.json');
+  await writeFile(cfg, JSON.stringify({ timeoutMs: TIMEOUT_MS, reviewers }));
+
+  const { spawn } = await import('node:child_process');
+  const { readFileSync, existsSync } = await import('node:fs');
+  const round = spawn(
+    process.execPath,
+    [ROUND, '--repo', dir, '--round', '1', '--intent', join(home, 'intent.md'), '--config', cfg],
+    { stdio: 'ignore' },
+  );
+
+  const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+  // Wait for both helpers to exist.
+  let helpers = [];
+  for (let i = 0; i < 100 && helpers.length < 2; i++) {
+    await sleepMs(100);
+    helpers = ['a', 'b']
+      .filter((id) => existsSync(join(pidDir, id)))
+      .map((id) => Number(readFileSync(join(pidDir, id), 'utf8').trim()))
+      .filter((pid) => Number.isInteger(pid) && pid > 0);
+  }
+  assert.equal(helpers.length, 2, 'both reviewers should have started a helper process');
+  assert.ok(helpers.every(alive), 'helpers should be running before we cancel');
+
+  round.kill('SIGINT');
+
+  let remaining = helpers;
+  for (let i = 0; i < 50 && remaining.length > 0; i++) {
+    await sleepMs(100);
+    remaining = helpers.filter(alive);
+  }
+
+  // Clean up anything that survived, so a failure here does not leak processes.
+  for (const pid of remaining) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+
+  assert.deepEqual(remaining, [], 'helper processes survived cancellation');
+});
