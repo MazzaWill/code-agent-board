@@ -17,8 +17,8 @@ jobs:
         node: [20, 22, 24]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
       # No `npm install` step on purpose: board has zero third-party dependencies, and a
@@ -30,8 +30,8 @@ jobs:
     # ready. With no reviewer CLI installed, the doctor must exit non-zero.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
       - name: doctor must exit non-zero with no reviewers installed
