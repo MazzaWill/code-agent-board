@@ -58,8 +58,11 @@ Cost reported by grok: $0.0133 — codex does not report cost
 抽离开源时又查出 4 个，包括一个「探针探的模型和真实轮次不是同一个」的 doctor，却一直报
 「全部就绪」。
 
-**然后 board 审了这次抽离的 diff 本身，又找出 6 个。** 其中一条在报告它的那一轮里自证了：
-有位评审员只跑了 1 个 turn，返回了一份结构合法但内容为空的裁决——
+**然后 board 审了这次抽离本身——四轮，每一轮审的都是上一轮的修复。又找出 14 个，而且每一
+轮都在上一轮的修复里发现了真缺陷。** 全部加起来 29 个，每条都经人工核实后才采纳。
+
+其中一条在报告它的那一轮里自证了：有位评审员只跑了 1 个 turn，返回了一份结构合法但内容
+为空的裁决——
 
 ```json
 {"verdict":"request_changes","blocking":[],"one_line_summary":"placeholder"}
@@ -71,6 +74,13 @@ Cost reported by grok: $0.0133 — codex does not report cost
 修法是把本来只在一个方向上正确的规则推广开：矛盾必须**朝保守方向**解决。「声称 approve
 却列了 blocking」解析为 request_changes；「声称 request_changes 却什么都没列」现在是
 parse_error，而不是通过。
+
+第 4 轮查出评审员 id——它会变成产物文件名——从未被校验：`../../../package` 会解析到产物
+目录之外，而 codex 正是用 `-o` 往那里写裁决，它会覆盖被审仓库的 `package.json`。
+
+两位评审员最后呈现出单个模型给不了的互补性：一位每轮都能找出真缺陷，包括自己上一轮修复
+里的；另一位在最后一轮准确判断出剩下哪些只是漂移而非 bug——正是后者让这个过程能停在一个
+站得住脚的地方，而不是无限跑下去。
 
 完整清单和每条修复的推理在 [DESIGN.zh-CN.md](DESIGN.zh-CN.md) §13。
 

@@ -68,9 +68,13 @@ an incomplete diff and we would have believed the change was reviewed.
 Extracting this repository for release turned up four more, including a doctor that
 reported "all ready" while probing a different model than a real round would use.
 
-**Then board was pointed at the extraction diff itself, and found six more.** One of them
-proved itself during the very round that reported it: a reviewer spent a single turn and
-returned a structurally valid but empty verdict —
+**Then board was pointed at the extraction itself — four rounds, each reviewing the
+previous round's fixes. It found 14 more, and every single round turned up real defects in
+the repairs made after the last one.** 29 in total across everything, each verified by hand
+before being accepted.
+
+One of them proved itself during the very round that reported it: a reviewer spent a single
+turn and returned a structurally valid but empty verdict —
 
 ```json
 {"verdict":"request_changes","blocking":[],"one_line_summary":"placeholder"}
@@ -85,6 +89,16 @@ The fix generalises a rule that was already right in one direction: resolving a
 contradiction must always move *toward caution*. "Declared approve but listed blocking
 items" resolves to request_changes; "declared request_changes but listed nothing" is now a
 parse_error rather than a pass.
+
+Round 4 found that reviewer ids — which become artifact filenames — were never validated:
+`../../../package` resolves clean out of the artifact directory, and codex writes its
+verdict there via `-o`, so it would have overwritten `package.json` in the repository under
+review.
+
+The two reviewers turned out complementary in a way one model cannot be. One kept finding
+real defects through every round, including in its own previous fixes. The other, in the
+final round, correctly judged which leftovers were drift rather than bugs — which is what
+let the process stop somewhere defensible instead of running forever.
 
 The full list, with the reasoning behind each fix, is in [DESIGN.md](DESIGN.md) §13.
 
