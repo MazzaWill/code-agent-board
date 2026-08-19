@@ -246,7 +246,11 @@ test('a stale verdict from a previous attempt is never counted as this round', a
 
   assert.doesNotMatch(r.stdout, /STALE-FROM-ATTEMPT-1/, "the previous attempt's verdict was counted as this round's");
   assert.doesNotMatch(r.stdout, /approved \(unanimous\)/, 'a reviewer that did no work must not carry the round');
-  assert.match(r.stdout, /parse_error/);
+  // Which failure it is depends on timing: a reviewer that exits without reading stdin
+  // trips the undelivered-brief check on Linux and reaches the parser on macOS. Either is
+  // correct; what matters is that it did not vote.
+  assert.match(r.stdout, /parse_error|unavailable/);
+  assert.match(r.stdout, /inconclusive/);
 });
 
 test('a multi-byte verdict survives chunk boundaries intact', async () => {
