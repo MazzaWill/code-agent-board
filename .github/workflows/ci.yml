@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is deliberately absent: three tests exercise POSIX-only behaviour
+        # (symlinks, file modes) and the support matrix says WSL. A red badge on day one
+        # would be worse than an honest gap.
+        os: [ubuntu-latest, macos-latest]
+        node: [20, 22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # No `npm install` step on purpose: board has zero third-party dependencies, and a
+      # green run without one is the proof.
+      - run: npm test
+
+  doctor-fails-closed:
+    # The project's central promise is that nothing unverifiable is ever reported as
+    # ready. With no reviewer CLI installed, the doctor must exit non-zero.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: doctor must exit non-zero with no reviewers installed
+        run: |
+          if node scripts/board-doctor.mjs; then
+            echo "doctor reported success with no reviewer CLIs present" >&2
+            exit 1
+          fi
+          echo "doctor correctly failed closed"

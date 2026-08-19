@@ -1,0 +1,22 @@
+{
+  "name": "code-agent-board",
+  "version": "0.1.0",
+  "description": "Cross-review your uncommitted changes with two rival AI CLIs that debate until neither has a blocking objection. A skill for Claude Code.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "doctor": "node scripts/board-doctor.mjs"
+  },
+  "keywords": [
+    "claude-code",
+    "code-review",
+    "ai-agents",
+    "cross-review",
+    "skill"
+  ]
+}

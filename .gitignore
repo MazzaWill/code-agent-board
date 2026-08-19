@@ -1,0 +1,6 @@
+node_modules/
+*.bak
+.DS_Store
+
+# board's own review artifacts, when board is run on this repository
+.claude/board/

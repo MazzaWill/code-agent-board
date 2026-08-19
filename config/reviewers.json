@@ -1,0 +1,69 @@
+{
+  "_timeoutNote": "900s is calibrated for xhigh effort. At high effort a round takes about 90 seconds; at xhigh a real diff takes 5-8 minutes. If you change reasoning effort, change this too — otherwise every reviewer times out and the round is judged all_failed.",
+  "timeoutMs": 900000,
+  "reviewers": [
+    {
+      "id": "codex",
+      "label": "codex / gpt-5.6-sol",
+      "bin": "codex",
+      "promptVia": "stdin",
+      "outputVia": "file",
+      "args": [
+        "exec",
+        "-m",
+        "gpt-5.6-sol",
+        "--ephemeral",
+        "-s",
+        "read-only",
+        "-C",
+        "{repo}",
+        "-c",
+        "model_reasoning_effort=xhigh",
+        "--output-schema",
+        "{schema}",
+        "-o",
+        "{outFile}",
+        "-"
+      ],
+      "probe": {
+        "dropFlagsWithValue": ["-C", "-c", "--output-schema", "-o"],
+        "dropFlags": ["-"],
+        "extraArgs": ["--skip-git-repo-check"],
+        "promptVia": "argv"
+      }
+    },
+    {
+      "id": "grok",
+      "label": "grok / grok-4.6",
+      "bin": "grok",
+      "promptVia": "file",
+      "outputVia": "stdout",
+      "args": [
+        "--prompt-file",
+        "{promptFile}",
+        "--cwd",
+        "{repo}",
+        "--sandbox",
+        "read-only",
+        "-m",
+        "grok-4.6",
+        "--reasoning-effort",
+        "xhigh",
+        "--output-format",
+        "json",
+        "--json-schema",
+        "{schemaInline}"
+      ],
+      "probe": {
+        "dropFlagsWithValue": ["--prompt-file", "--cwd", "--reasoning-effort", "--output-format", "--json-schema"],
+        "dropFlags": [],
+        "extraArgs": [],
+        "promptVia": "flag",
+        "promptFlag": "-p"
+      }
+    }
+  ],
+  "_modelNote": "Both models are pinned here and deliberately do NOT follow each CLI's global default. Whatever the label says must actually be passed on the command line. Otherwise switching projects — or changing your CLI's global default months from now — silently runs a different model while the label keeps claiming the old one.",
+  "_ephemeralNote": "--ephemeral tells codex not to persist session files to disk, which keeps ~/.codex/sessions/ clean; without it each round leaves roughly 1 MB of rollout behind. Remove it if you use a tool that measures codex token usage by scanning those rollout files — such tools cannot see an ephemeral session at all, so its cost goes unrecorded.",
+  "_probeNote": "board-doctor derives its connectivity-probe arguments from `args` above using these rules, rather than keeping a second hand-maintained copy of each CLI's invocation shape (which drifts by construction). Listed flags are stripped — schema/output/prompt plumbing, plus the effort flag so the probe stays cheap — while `-m <model>` is deliberately KEPT: probing a different model than the meeting actually uses is exactly how 'doctor says ready, first meeting fails' happens."
+}
