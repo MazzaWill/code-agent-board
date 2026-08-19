@@ -121,6 +121,10 @@ npm run doctor         # 两位评审员都必须报 ready
 
 然后**重启 Claude Code 会话**——已经开着的会话不会加载新装的 skill。
 
+两个 CLI 都必须在 `PATH` 里。grok 默认装到 `~/.grok/bin`，不是每个 shell 都会自动带上；
+如果你确认装了却被 `npm run doctor` 报成 "not installed"，那是 `PATH` 的问题，不是二进制
+不在。
+
 预算大约十分钟，大部分花在两个 CLI 的登录上。
 
 ## 用法

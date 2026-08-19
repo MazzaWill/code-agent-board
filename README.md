@@ -142,6 +142,10 @@ npm run doctor         # both reviewers must report ready
 Then **restart your Claude Code session** — an already-open session will not pick up a
 newly installed skill.
 
+Both CLIs have to end up on your `PATH`. grok installs to `~/.grok/bin` by default, which
+not every shell picks up; if `npm run doctor` reports one as "not installed" while you are
+sure it is there, that is a `PATH` problem, not a missing binary.
+
 Budget about ten minutes, most of it logging into the two CLIs.
 
 ## Usage
