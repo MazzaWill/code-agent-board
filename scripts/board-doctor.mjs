@@ -6,7 +6,7 @@
 // conclude the mechanism is bad when they simply were not authenticated.
 
 import { execFileSync } from 'node:child_process';
-import { accessSync, constants, readFileSync } from 'node:fs';
+import { accessSync, constants, readFileSync, realpathSync } from 'node:fs';
 import { basename, delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -196,6 +196,21 @@ function main() {
 }
 
 // Only run when invoked directly, so tests can import the pure functions.
-if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
+//
+// realpath BOTH sides. install.sh links this repo to ~/.claude/skills/board, so argv[1]
+// is a path through that symlink while import.meta.url is already resolved — comparing
+// them unresolved makes this false for every installed user, and doctor then exits 0
+// having checked nothing. A diagnostic tool silently reporting success is precisely what
+// this project forbids everywhere else. Found by board reviewing this extraction.
+function invokedDirectly() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedDirectly()) {
   main();
 }

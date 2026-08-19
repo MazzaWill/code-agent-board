@@ -56,7 +56,23 @@ Cost reported by grok: $0.0133 — codex does not report cost
 谨慎，就会基于残缺 diff 给出 approve，而我们会以为审过了。
 
 抽离开源时又查出 4 个，包括一个「探针探的模型和真实轮次不是同一个」的 doctor，却一直报
-「全部就绪」。完整清单和推理在 [DESIGN.zh-CN.md](DESIGN.zh-CN.md) §13。
+「全部就绪」。
+
+**然后 board 审了这次抽离的 diff 本身，又找出 6 个。** 其中一条在报告它的那一轮里自证了：
+有位评审员只跑了 1 个 turn，返回了一份结构合法但内容为空的裁决——
+
+```json
+{"verdict":"request_changes","blocking":[],"one_line_summary":"placeholder"}
+```
+
+——解析完全通过，而 blocking 为空又让它被算成一张 **approve**。一个没干活的评审员投了赞成
+票。而另一位评审员在同一轮里，正好从代码里读出了这一类 bug。
+
+修法是把本来只在一个方向上正确的规则推广开：矛盾必须**朝保守方向**解决。「声称 approve
+却列了 blocking」解析为 request_changes；「声称 request_changes 却什么都没列」现在是
+parse_error，而不是通过。
+
+完整清单和每条修复的推理在 [DESIGN.zh-CN.md](DESIGN.zh-CN.md) §13。
 
 ### 审方案比审代码更划算
 
@@ -161,9 +177,15 @@ blocking 之前，先自己去仓库里核实它引用的文件、函数、字�
 
 你的 diff，加上未跟踪且未被 gitignore 的文件的完整内容，会发给 OpenAI 和 xAI。
 
-不会发的：被 gitignore 的文件、symlink 指向的目标（绝不跟随）、二进制文件、以及文件名看
-起来像密钥的（`.env*`、`*.pem`、`*.key`、`id_rsa*`、`*credentials*` 等）。跳过的文件会被
-明确列为「已跳过」而不是静默丢掉，好让评审员知道那里有东西。
+board 不会把这些放进 brief：被 gitignore 的文件、symlink 指向的目标（绝不跟随）、二进制
+文件、以及文件名看起来像密钥的（`.env*`、`*.pem`、`*.key`、`secrets.*`、`id_rsa*`、
+`*credentials*` 等）。跳过的文件会被明确列为「已跳过」而不是静默丢掉，好让评审员知道那里
+有东西。
+
+**但「不在 brief 里」不等于「够不着」。** 评审员是 agent，以被审仓库为工作目录运行，而
+prompt 还鼓励它们读文件来建立上下文。board 拒绝附上的文件，评审员完全可以自己去打开。
+只读沙箱拦的是写入，它不是保密边界。如果仓库里有你不能暴露给这两家厂商的凭证，就别在它
+上面跑 board——详见 [SECURITY.md](SECURITY.md)。
 
 两位评审员都跑在各自 CLI 的硬只读沙箱里，不接触任何凭证。它们的输出被当作数据，绝不当
 作指令执行。
@@ -198,7 +220,7 @@ Windows 暂不支持：doctor 的 PATH 查找已经改成跨平台的，但 SKIL
 ## 开发
 
 ```bash
-npm test        # 75 个测试，不需要 npm install
+npm test        # 93 个测试，不需要 npm install
 npm run doctor
 ```
 

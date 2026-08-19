@@ -17,6 +17,8 @@ function parseJson(text, what) {
 export function parseCodexOutput(text) {
   const { value, err } = parseJson(text, 'codex ');
   if (err) return { status: 'parse_error', reason: err };
+  const v = validateVerdict(value);
+  if (!v.ok) return { status: 'parse_error', reason: v.reason };
   return { status: 'ok', data: value, costUsd: null };
 }
 
@@ -34,8 +36,60 @@ export function parseGrokOutput(text) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     return { status: 'parse_error', reason: 'grok envelope had neither structuredOutput nor parseable text' };
   }
+  const v = validateVerdict(data);
+  if (!v.ok) return { status: 'parse_error', reason: v.reason };
   const costUsd = typeof env.total_cost_usd === 'number' ? env.total_cost_usd : null;
   return { status: 'ok', data, costUsd };
+}
+
+// Validate the verdict's shape AND its internal consistency before anyone counts votes.
+//
+// The CLIs are given a strict JSON schema, but schema enforcement can lapse — a version
+// bump, a fallback path, a model that answers without really working. Measured live while
+// reviewing this very extraction: one reviewer burned a single turn and returned
+// {"verdict":"request_changes","blocking":[],"one_line_summary":"placeholder"}. That is
+// structurally valid, so it parsed fine, and because the blocking list was empty it was
+// counted as an APPROVE — a reviewer that did no work casting a vote in favour.
+//
+// Two rules follow:
+//   - anything that does not match the schema is a parse_error, never a vote
+//   - "request_changes with nothing listed" is unusable, not approval. Resolving a
+//     contradiction must always move toward caution; the opposite direction (declaring
+//     approve while listing blocking items) still resolves to request_changes below.
+export function validateVerdict(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { ok: false, reason: 'verdict payload is not an object' };
+  }
+  const { verdict, blocking, non_blocking, one_line_summary } = data;
+
+  if (verdict !== 'approve' && verdict !== 'request_changes') {
+    return { ok: false, reason: `verdict must be "approve" or "request_changes", got ${JSON.stringify(verdict)}` };
+  }
+  if (!Array.isArray(blocking)) return { ok: false, reason: 'blocking is not an array' };
+  if (!Array.isArray(non_blocking)) return { ok: false, reason: 'non_blocking is not an array' };
+  if (typeof one_line_summary !== 'string' || !one_line_summary.trim()) {
+    return { ok: false, reason: 'one_line_summary is missing or empty' };
+  }
+
+  for (const [i, b] of blocking.entries()) {
+    if (!b || typeof b !== 'object' || Array.isArray(b)) {
+      return { ok: false, reason: `blocking[${i}] is not an object` };
+    }
+    for (const field of ['file', 'issue', 'why_it_matters']) {
+      if (typeof b[field] !== 'string' || !b[field].trim()) {
+        return { ok: false, reason: `blocking[${i}] is missing "${field}"` };
+      }
+    }
+  }
+
+  if (verdict === 'request_changes' && blocking.length === 0) {
+    return {
+      ok: false,
+      reason: 'declared request_changes but listed no blocking items — nothing actionable, and counting it as approval would be wrong',
+    };
+  }
+
+  return { ok: true };
 }
 
 export function normalizeVerdict(data) {

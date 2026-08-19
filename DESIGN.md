@@ -205,11 +205,12 @@ code-agent-board/
 ├─ config/
 │  ├─ reviewers.json
 │  └─ verdict.schema.json
-└─ test/                       75 tests, all of them under `npm test`
+└─ test/                       93 tests, all of them under `npm test`
    ├─ brief.test.mjs           real git repositories (symlinks, huge files, renames, secrets)
    ├─ git-artifacts.test.mjs   real git repository + real linked worktree
    ├─ modes.test.mjs           (mode × language) matrix over every prompt invariant
    ├─ doctor.test.mjs          probe derivation, model parity, "unverifiable must fail"
+   ├─ args.test.mjs            strict flag parsing; a typo in a flag NAME must fail loudly
    ├─ verdict.test.mjs
    ├─ tally.test.mjs
    └─ summary.test.mjs
@@ -406,6 +407,39 @@ and refuses to run if it cannot prove it is probing the same model a real round 
 
 Defect 14 is a direct violation of this project's own iron rule, sitting inside the tool
 whose whole job is to catch exactly that.
+
+### Then board reviewed the extraction itself
+
+Before publishing, board was pointed at the extraction diff (3,468 lines). It raised
+7 blocking items. **Six were real** and are fixed in this repository; one was an artifact
+of the dogfood setup (the temporary baseline commit legitimately contained the private
+version, which the reviewer read as "the history to be published").
+
+| # | defect | class |
+|---|---|---|
+| 16 | the secret-filename filter kept files out of the brief, but the reviewers are agents with the repo as cwd and prompts that encourage reading files — "excluded from the brief" was documented as "not sent", which was too strong | **documentation / security** |
+| 17 | the SENSITIVE pattern did not match `.envrc`, `secrets.env` or `secrets.txt`, while SECURITY.md promised `.env*` | **security** |
+| 18 | `board-doctor.mjs` compared `process.argv[1]` with `import.meta.url` without resolving symlinks, so when reached through the `~/.claude/skills/board` symlink that `install.sh` creates, it checked nothing and exited 0 | **silent success** |
+| 19 | the argument parser ignored unknown flags, so `--mdoe plan` silently reviewed a plan with the code prompt; a malformed `--round` also bypassed the contested requirement | **silent fallback** |
+| 20 | a structurally valid but empty verdict became an approve vote | **silent pass** |
+| 21 | SKILL.md told the agent not to rely on shell state surviving between commands, then used `$TMP` across commands with fixed filenames | protocol |
+
+**Defect 20 proved itself during the very round that reported it.** One reviewer spent a
+single turn and returned `{"verdict":"request_changes","blocking":[],"one_line_summary":"placeholder"}`.
+That is schema-valid, so it parsed; and because the blocking list was empty,
+`normalizeVerdict` resolved it to **approve**. A reviewer that did no work cast a vote in
+favour. Had the other reviewer also approved, the round would have been reported as
+unanimous.
+
+The fix generalises the rule that was already right in one direction. Resolving a
+contradiction must always move **toward caution**: "declared approve but listed blocking
+items" resolves to request_changes (as before), while "declared request_changes but listed
+nothing" is now a `parse_error` — unusable, not approval.
+
+Defect 18 is the sharpest of the set: a diagnostic tool silently reporting success, inside
+the project whose central promise is that nothing silently reports success. It was
+introduced by this extraction (the direct-invocation guard exists so tests can import the
+pure functions) and would have hit **every user who installed via `install.sh`**.
 
 ## 14. Plan review mode
 

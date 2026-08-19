@@ -83,15 +83,21 @@ contents, and assembles the brief.
 
 You only write two temp files, and they **must live outside the repository under review**
 (inside, they would become untracked files and end up inside their own brief — the script
-rejects that):
+rejects that). Make one directory per meeting:
 
 ```bash
-TMP=$(node -p "require('node:os').tmpdir()")
+mktemp -d
 ```
 
-`$TMP/board-intent.md` — one or two sentences on what this change is trying to do.
+Keep the path it prints and substitute that literal for `<TMP>` below — same rule as
+`<BOARD>`: **do not rely on a shell variable surviving between commands.** If `$TMP` came
+back empty in a later shell, the path would silently become `/board-intent.md`. A
+per-meeting directory also stops two concurrent meetings from overwriting each other's
+intent and feeding one repository the other's context.
 
-`$TMP/board-contested.md` — **from round 2 onward**, how you handled each point:
+`<TMP>/intent.md` — one or two sentences on what this change is trying to do.
+
+`<TMP>/contested.md` — **from round 2 onward**, how you handled each point:
 
 ```markdown
 ### [codex, blocking] src/x.ts:88 throws when the subscription expires
@@ -118,7 +124,7 @@ resolved.
 
 ```bash
 node "<BOARD>/scripts/board-round.mjs" --repo <repo> --round <N> \
-  --mode <code|plan> --intent "$TMP/board-intent.md" --contested "$TMP/board-contested.md"
+  --mode <code|plan> --intent "<TMP>/intent.md" --contested "<TMP>/contested.md"
 ```
 
 Round 1 takes no `--contested`; omitting `--mode` means `code`. Add `--lang zh-CN` to get

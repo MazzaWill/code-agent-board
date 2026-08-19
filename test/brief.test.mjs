@@ -209,3 +209,25 @@ test('isDirty: a clean working tree returns false', async () => {
   const dir = await newRepo();
   assert.equal(isDirty(dir), false);
 });
+
+test('security: the secret patterns cover what the docs promise', () => {
+  // The regex once claimed `.env*` while matching only `.env` and `.env.<x>`, so
+  // `.envrc`, `secrets.env` and `secrets.txt` went to two vendors in full. Found by
+  // board reviewing its own extraction.
+  const withheld = (f) => readUntrackedFile('/nonexistent-repo', f).skipped;
+
+  for (const f of [
+    '.env', '.env.local', '.envrc', '.env-example', 'config/.env.production',
+    'secrets.env', 'secrets.txt', 'secrets-prod.yaml', 'secret.json',
+    '.pgpass', '.netrc', '.npmrc',
+    'server.pem', 'app.key', 'store.jks', 'keys.p12',
+    'id_rsa', 'id_ed25519', 'id_ecdsa.pub', 'aws-credentials.json',
+  ]) {
+    assert.match(withheld(f) ?? '', /looks like a secret/, `${f} must be withheld`);
+  }
+
+  // ...without swallowing ordinary files that merely start with the same letters.
+  for (const f of ['secretsanta.md', 'src/environment.ts', 'keyboard.tsx']) {
+    assert.doesNotMatch(withheld(f) ?? '', /looks like a secret/, `${f} must not be treated as a secret`);
+  }
+});

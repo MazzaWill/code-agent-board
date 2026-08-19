@@ -26,13 +26,58 @@ const ROOT = resolve(HERE, '..');
 
 const PARSERS = { stdout: parseGrokOutput, file: parseCodexOutput };
 
+// Strict argument parsing. The lenient version silently ignored anything it did not
+// recognise, so `--mdoe plan` reviewed a plan with the code prompt and very likely
+// approved it — the exact silent-fallback failure that resolveMode refuses to allow one
+// layer down. A typo in a flag NAME has to fail as loudly as a typo in its value.
+const VALUE_FLAGS = new Set(['repo', 'round', 'mode', 'intent', 'contested', 'lang']);
+const BOOL_FLAGS = new Set(['stat']);
+
+export function parseArgs(argv) {
+  const out = {};
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i];
+    if (!tok.startsWith('--')) {
+      return { ok: false, reason: `unexpected argument "${tok}" (every option must start with --)` };
+    }
+    const name = tok.slice(2);
+
+    if (name in out) return { ok: false, reason: `--${name} was given more than once` };
+
+    if (BOOL_FLAGS.has(name)) {
+      out[name] = true;
+      continue;
+    }
+    if (!VALUE_FLAGS.has(name)) {
+      const known = [...VALUE_FLAGS, ...BOOL_FLAGS].map((f) => `--${f}`).join(' ');
+      return { ok: false, reason: `unknown option "--${name}". Known options: ${known}` };
+    }
+
+    const value = argv[i + 1];
+    if (value === undefined || value.startsWith('--')) {
+      return { ok: false, reason: `--${name} requires a value` };
+    }
+    out[name] = value;
+    i++;
+  }
+
+  if (out.round !== undefined && !/^[1-9][0-9]*$/.test(out.round)) {
+    return { ok: false, reason: `--round must be a positive integer, got "${out.round}"` };
+  }
+
+  return { ok: true, args: out };
+}
+
+// Populated by main(). Parsing at module scope would run against whatever argv the
+// importer happens to have — a test runner's, for instance — and exit the process.
+let ARGS = {};
+
 function arg(name, fallback) {
-  const i = process.argv.indexOf(`--${name}`);
-  return i === -1 ? fallback : process.argv[i + 1];
+  return ARGS[name] ?? fallback;
 }
 
 function has(name) {
-  return process.argv.includes(`--${name}`);
+  return ARGS[name] === true;
 }
 
 function die(msg) {
@@ -133,6 +178,10 @@ function runReviewer(rv, ctx) {
 }
 
 async function main() {
+  const parsed = parseArgs(process.argv.slice(2));
+  if (!parsed.ok) die(parsed.reason);
+  ARGS = parsed.args;
+
   const repo = resolve(arg('repo', process.cwd()));
 
   // --stat answers "how big is this change?" without convening anyone. It exists so the
@@ -241,4 +290,17 @@ async function main() {
   process.stdout.write(`${text}\n`);
 }
 
-main().catch((e) => die(`board-round crashed: ${e.stack}`));
+// Only run when invoked directly, so tests can import parseArgs. realpath both sides —
+// an installed skill is reached through a symlink.
+function invokedDirectly() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedDirectly()) {
+  main().catch((e) => die(`board-round crashed: ${e.stack}`));
+}

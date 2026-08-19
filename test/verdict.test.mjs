@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { normalizeVerdict, parseCodexOutput, parseGrokOutput } from '../scripts/verdict.mjs';
+import { normalizeVerdict, parseCodexOutput, parseGrokOutput, validateVerdict } from '../scripts/verdict.mjs';
 
 const OBJ = { verdict: 'approve', blocking: [], non_blocking: [], one_line_summary: 'ok' };
 
@@ -88,4 +88,72 @@ test('normalize: missing or wrongly-typed fields degrade to empty arrays instead
   assert.deepEqual(v.non_blocking, []);
   assert.equal(v.one_line_summary, '');
   assert.equal(v.verdict, 'approve');
+});
+
+// —— Shape and consistency validation. Added after board, reviewing its own extraction,
+// —— pointed out that a malformed-but-parseable payload became an approve vote — and
+// —— then demonstrated it live in the same round.
+
+const PLACEHOLDER = { verdict: 'request_changes', blocking: [], non_blocking: [], one_line_summary: 'placeholder' };
+
+test('validate: request_changes with an empty blocking list is unusable, not approval', () => {
+  // Measured live: a reviewer spent one turn and returned exactly this. It is
+  // structurally valid, so it parsed — and with no blocking items it was counted as an
+  // APPROVE from a reviewer that had done no work.
+  const v = validateVerdict(PLACEHOLDER);
+  assert.equal(v.ok, false);
+  assert.match(v.reason, /nothing actionable/);
+});
+
+test('validate: that payload is now a parse_error from both parsers', () => {
+  assert.equal(parseGrokOutput(JSON.stringify({ structuredOutput: PLACEHOLDER })).status, 'parse_error');
+  assert.equal(parseCodexOutput(JSON.stringify(PLACEHOLDER)).status, 'parse_error');
+});
+
+test('validate: an unknown verdict value is rejected', () => {
+  const v = validateVerdict({ ...OBJ, verdict: 'lgtm' });
+  assert.equal(v.ok, false);
+  assert.match(v.reason, /lgtm/);
+});
+
+test('validate: a blocking entry missing why_it_matters is rejected', () => {
+  // why_it_matters is what makes a finding actionable; without it there is nothing to
+  // verify and nothing to weigh against declining.
+  const v = validateVerdict({
+    ...OBJ, verdict: 'request_changes',
+    blocking: [{ file: 'a.ts', issue: 'x' }],
+  });
+  assert.equal(v.ok, false);
+  assert.match(v.reason, /why_it_matters/);
+});
+
+test('validate: wrong types and empty summaries are rejected', () => {
+  assert.equal(validateVerdict({ ...OBJ, blocking: 'nope' }).ok, false);
+  assert.equal(validateVerdict({ ...OBJ, non_blocking: null }).ok, false);
+  assert.equal(validateVerdict({ ...OBJ, one_line_summary: '  ' }).ok, false);
+  assert.equal(validateVerdict({}).ok, false);
+  assert.equal(validateVerdict(null).ok, false);
+});
+
+test('validate: a well-formed verdict still passes', () => {
+  assert.equal(validateVerdict(OBJ).ok, true);
+  assert.equal(validateVerdict({
+    verdict: 'request_changes',
+    blocking: [{ file: 'a.ts', line: 3, issue: 'x', why_it_matters: 'y', suggested_fix: null }],
+    non_blocking: [], one_line_summary: 's',
+  }).ok, true);
+});
+
+test('the contradiction that resolves toward caution is still allowed through', () => {
+  // declared approve + blocking items → request_changes. That direction is safe, so it
+  // must keep working; only the permissive direction is now refused.
+  const declaredApprove = {
+    verdict: 'approve',
+    blocking: [{ file: 'a.ts', issue: 'x', why_it_matters: 'y' }],
+    non_blocking: [], one_line_summary: 's',
+  };
+  assert.equal(validateVerdict(declaredApprove).ok, true);
+  const n = normalizeVerdict(declaredApprove);
+  assert.equal(n.verdict, 'request_changes');
+  assert.equal(n.contradiction, true);
 });

@@ -179,11 +179,12 @@ code-agent-board/
 ├─ config/
 │  ├─ reviewers.json
 │  └─ verdict.schema.json
-└─ test/                       75 个测试，`npm test` 一把跑完
+└─ test/                       93 个测试，`npm test` 一把跑完
    ├─ brief.test.mjs           用真 git 仓库（含 symlink、大文件、重命名、密钥文件）
    ├─ git-artifacts.test.mjs   用真 git 仓库 + 真 worktree
    ├─ modes.test.mjs           (模式 × 语言) 矩阵，断言每份 prompt 都带 {{BRIEF}} 和两条约束
    ├─ doctor.test.mjs          探针派生与模型一致性，含「不可验证必须失败」
+   ├─ args.test.mjs            严格参数解析；参数名拼错必须大声失败
    ├─ verdict.test.mjs
    ├─ tally.test.mjs
    └─ summary.test.mjs
@@ -354,6 +355,34 @@ agent 没执行。这类步骤必须挪进代码强制执行——所以才有�
 自己探的是真实轮次会用的模型时直接拒绝运行。
 
 第 14 条则是直接违反本项目自己的铁律，而且就发生在那个专门用来抓这种事的工具里面。
+
+### 然后 board 审了这次抽离本身
+
+发布前把 board 指向抽离的 diff（3468 行），它提了 7 条 blocking。**6 条属实**，均已在本仓库
+修复；1 条是 dogfood 环境造成的误判（临时基线提交里确实是私有版内容，评审员把它当成了
+「要发布的历史」）。
+
+| # | 缺陷 | 性质 |
+|---|---|---|
+| 16 | 密钥文件名过滤只挡住内容进 brief，但评审员是以仓库为 cwd 的 agent、prompt 还鼓励它读文件——「不进 brief」被写成了「不会发送」，承诺过强 | **文档 / 安全** |
+| 17 | SENSITIVE 正则没匹配 `.envrc`、`secrets.env`、`secrets.txt`，而 SECURITY.md 承诺的是 `.env*` | **安全** |
+| 18 | `board-doctor.mjs` 比较 `process.argv[1]` 与 `import.meta.url` 时不解析 symlink，于是经由 `install.sh` 造的 `~/.claude/skills/board` 软链调用时，什么都不检查就 exit 0 | **静默成功** |
+| 19 | 参数解析忽略未知参数，`--mdoe plan` 会静默用代码 prompt 审方案；畸形的 `--round` 还能绕过 contested 强制要求 | **静默回落** |
+| 20 | 结构合法但内容为空的裁决会变成一张 approve 票 | **静默通过** |
+| 21 | SKILL.md 一边告诫 agent 别依赖 shell 变量跨命令存活，一边自己用 `$TMP` 跨命令且文件名固定 | 协议 |
+
+**第 20 条在报告它的那一轮里自证了。** 有一位评审员只跑了 1 个 turn，返回
+`{"verdict":"request_changes","blocking":[],"one_line_summary":"placeholder"}`。这份输出
+schema 合法所以解析通过，而 blocking 为空又让 `normalizeVerdict` 把它归为 **approve**——
+一个没干活的评审员投了赞成票。要是另一位也 approve，这轮就会被报成全票通过。
+
+修法是把本来只在一个方向上正确的规则推广开：矛盾必须**朝保守方向**解决。「声称 approve
+却列了 blocking」解析为 request_changes（和原来一样），而「声称 request_changes 却什么都
+没列」现在是 `parse_error`——无法据以行动，就不能算赞成。
+
+第 18 条最扎心：一个专门用来杜绝静默成功的项目，自己的诊断工具静默成功了。它是这次抽离
+引入的（那个直接调用判断是为了让测试能 import 纯函数），而且会命中**每一个用
+`install.sh` 安装的用户**。
 
 ## 14. 方案评审模式
 

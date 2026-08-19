@@ -11,9 +11,9 @@ that means.
 - the **full contents** of untracked files that are not gitignored
 - your intent text and, from round 2 on, your contested notes
 
-**Not sent:**
+**Not put into the brief by board:**
 
-| Excluded | How |
+| Excluded from the brief | How |
 |---|---|
 | gitignored files | `git ls-files --others --exclude-standard` never lists them |
 | symlink targets | `lstat`, never `stat` — symlinks are skipped, never followed |
@@ -24,6 +24,29 @@ that means.
 Every exclusion is **visible**: the file is listed in the brief with the reason it was
 skipped. A silent omission would leave the reviewers reasoning about something they cannot
 see, without anyone noticing — which is how a review gets quietly invalidated.
+
+### Excluded from the brief is not the same as unreachable
+
+**This is the most important limitation on this page.** The reviewers are agents, not
+text summarizers. They run with the repository as their working directory, and both
+prompts actively encourage them to grep and read files to establish context — that is
+what makes their findings good.
+
+So a file board declined to attach can still be opened by a reviewer on its own
+initiative, and its contents can still end up in that reviewer's context and therefore
+with its vendor. The read-only sandbox stops **writes**; it is not a confidentiality
+boundary.
+
+What the exclusions above actually buy you: board never *hands over* a secret unprompted,
+and the reviewers have no reason to go looking at a file the brief told them was skipped.
+What they do not buy you: a guarantee.
+
+If a repository contains credentials you cannot afford to expose to OpenAI or xAI, do not
+run board on it. Gitignoring them helps (they will not be listed at all), but the only
+real boundary is not pointing an external agent at the repository in the first place.
+
+(Found by board reviewing its own extraction — the first version of this page claimed
+these files "are not sent", which was too strong.)
 
 ## The two limits worth understanding
 

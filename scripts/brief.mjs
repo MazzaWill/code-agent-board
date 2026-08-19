@@ -26,7 +26,13 @@ const BINARY = /\.(png|jpe?g|gif|webp|avif|ico|svgz|pdf|zip|gz|tgz|bz2|xz|7z|mp[
 // untracked symlink out of the repository, which this module already refuses to do.
 // These are skipped VISIBLY: a silent omission would leave the reviewers reasoning
 // about a file they cannot see without anyone knowing.
-const SENSITIVE = /(^|\/)(\.env(\.[^/]*)?|\.netrc|\.npmrc|.*\.pem|.*\.key|.*\.p12|.*\.pfx|id_rsa.*|id_ed25519.*|.*credentials.*|.*secrets?\.(json|ya?ml|toml))$/i;
+//
+// The pattern must stay in step with what SECURITY.md promises. It once claimed `.env*`
+// while the regex only matched `.env` and `.env.<something>` — missing `.envrc`,
+// `secrets.env` and `secrets.txt` entirely. Over-matching here is cheap (the skip is
+// visible and the reviewer can still ask about the file); under-matching ships a secret
+// to two vendors.
+const SENSITIVE = /(^|\/)(\.env[^/]*|\.netrc|\.npmrc|\.pgpass|secrets?([._-][^/]*)?|.*\.(pem|key|p12|pfx|jks|keystore)|id_(rsa|dsa|ecdsa|ed25519).*|.*credentials.*)$/i;
 
 // Cap on a single untracked file's contents. Beyond this we attach the head and say so,
 // so one accidentally-present log file cannot push the whole brief out of the

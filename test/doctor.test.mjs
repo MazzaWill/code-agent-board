@@ -12,7 +12,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -146,4 +146,27 @@ test('doctor exits non-zero when a reviewer binary is missing', async () => {
   const r = spawnSync(process.execPath, [DOCTOR, '--config', p], { encoding: 'utf8' });
   assert.equal(r.status, 1);
   assert.match(r.stdout, /not installed/);
+});
+
+test('doctor actually runs when invoked through a symlinked install', async () => {
+  // install.sh links the checkout to ~/.claude/skills/board, so argv[1] arrives via that
+  // symlink while import.meta.url is already resolved. Comparing them unresolved made the
+  // direct-invocation check false for every installed user: doctor exited 0 having
+  // checked nothing — a diagnostic tool silently reporting success. Found by board
+  // reviewing its own extraction.
+  const dir = await mkdtemp(join(tmpdir(), 'board-symlink-'));
+  created.push(dir);
+  const link = join(dir, 'board');
+  await symlink(ROOT, link);
+
+  const p = await fixtureConfig([
+    {
+      id: 'ghost', label: 'ghost', bin: 'definitely-not-a-real-binary-9f3a2b', args: ['-m', 'x'],
+      probe: { dropFlagsWithValue: [], dropFlags: [], extraArgs: [], promptVia: 'argv' },
+    },
+  ]);
+  const r = spawnSync(process.execPath, [join(link, 'scripts/board-doctor.mjs'), '--config', p], { encoding: 'utf8' });
+
+  assert.notEqual(r.stdout.trim(), '', 'doctor produced no output at all through the symlink');
+  assert.equal(r.status, 1, 'doctor must still fail closed when reached through a symlink');
 });

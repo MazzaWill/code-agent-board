@@ -66,8 +66,27 @@ the module being imported. Had it been less careful, it would have returned an a
 an incomplete diff and we would have believed the change was reviewed.
 
 Extracting this repository for release turned up four more, including a doctor that
-reported "all ready" while probing a different model than a real round would use. The full
-list, with the reasoning, is in [DESIGN.md](DESIGN.md) §13.
+reported "all ready" while probing a different model than a real round would use.
+
+**Then board was pointed at the extraction diff itself, and found six more.** One of them
+proved itself during the very round that reported it: a reviewer spent a single turn and
+returned a structurally valid but empty verdict —
+
+```json
+{"verdict":"request_changes","blocking":[],"one_line_summary":"placeholder"}
+```
+
+— which parsed cleanly and, because the blocking list was empty, was counted as an
+**approve**. A reviewer that did no work had cast a vote in favour. The other reviewer
+caught exactly this class of bug in the same round, in code it was reading rather than
+running.
+
+The fix generalises a rule that was already right in one direction: resolving a
+contradiction must always move *toward caution*. "Declared approve but listed blocking
+items" resolves to request_changes; "declared request_changes but listed nothing" is now a
+parse_error rather than a pass.
+
+The full list, with the reasoning behind each fix, is in [DESIGN.md](DESIGN.md) §13.
 
 ### Reviewing a plan beats reviewing code
 
@@ -188,10 +207,17 @@ blocking item's file, function or column before acting on it.
 Your diff, plus the full contents of untracked files that are not gitignored, go to
 OpenAI and xAI.
 
-Not sent: gitignored files, the targets of symlinks (never followed), binaries, and files
-whose names look like secrets (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `*credentials*`, …).
-Skipped files are listed as skipped rather than silently dropped, so the reviewers know
-something is there.
+board does not put these into the brief: gitignored files, the targets of symlinks (never
+followed), binaries, and files whose names look like secrets (`.env*`, `*.pem`, `*.key`,
+`secrets.*`, `id_rsa*`, `*credentials*`, …). Skipped files are listed as skipped rather
+than silently dropped, so the reviewers know something is there.
+
+**But "not in the brief" is not "unreachable".** The reviewers are agents with the
+repository as their working directory, and the prompts encourage them to read files for
+context. A file board declined to attach can still be opened by a reviewer itself. The
+read-only sandbox prevents writes; it is not a confidentiality boundary. If a repository
+holds credentials you cannot expose to these vendors, do not run board on it — see
+[SECURITY.md](SECURITY.md).
 
 Both reviewers run in their CLI's hard read-only sandbox and receive no credentials.
 Their output is treated as data, never as instructions.
@@ -242,7 +268,7 @@ handling and three tests still assume POSIX behaviour (symlinks, file modes). Us
 ## Development
 
 ```bash
-npm test        # 75 tests, no npm install needed
+npm test        # 93 tests, no npm install needed
 npm run doctor
 ```
 
