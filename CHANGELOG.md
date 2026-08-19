@@ -10,7 +10,7 @@ Initial release, extracted from the author's private skills repository.
 - Two reviewers (codex, grok) running in parallel under hard read-only sandboxes
 - Convergence protocol: blocking / non_blocking split, reasoned refusal, three-round
   escalation, and failure never counting as approval
-- 102 offline tests, zero third-party dependencies
+- 109 offline tests, zero third-party dependencies
 - `board-doctor` environment check
 
 ### Fixed while extracting for release

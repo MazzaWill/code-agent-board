@@ -205,7 +205,7 @@ code-agent-board/
 ├─ config/
 │  ├─ reviewers.json
 │  └─ verdict.schema.json
-└─ test/                       102 tests, all of them under `npm test`
+└─ test/                       109 tests, all of them under `npm test`
    ├─ brief.test.mjs           real git repositories (symlinks, huge files, renames, secrets)
    ├─ git-artifacts.test.mjs   real git repository + real linked worktree
    ├─ modes.test.mjs           (mode × language) matrix over every prompt invariant
@@ -321,6 +321,14 @@ where tools of this kind are most likely to deceive.
   outage cannot burn time in an infinite loop.)
 - If **every** reviewer fails in a round, abort immediately; never proceed to the next
   round pretending there was a debate.
+- Fewer than two verdicts is `insufficient_verdicts`, **not** `inconclusive`. The two call
+  for opposite responses: inconclusive means retrying may work, this means the roster
+  cannot produce a cross-checked result and retrying is pure waste. Collapsing them also
+  printed "0 failed" beside "a reviewer failed" in the same table. `board-round` now
+  rejects such a roster before spawning anything, and `validateReviewerConfig` enforces
+  what "at least two reviewers" actually requires: two entries, distinct ids (verdicts and
+  transcripts are filed by id, so duplicates overwrite each other), and at least two
+  vendors — two identically-configured codex entries are one model reviewing twice.
 
 ## 10. Security boundary
 
@@ -472,6 +480,60 @@ Defect 18 is the sharpest of the set: a diagnostic tool silently reporting succe
 the project whose central promise is that nothing silently reports success. It was
 introduced by this extraction (the direct-invocation guard exists so tests can import the
 pure functions) and would have hit **every user who installed via `install.sh`**.
+
+### Rounds 2 and 3: reviewing the fixes
+
+Each round reviewed the previous round's fixes. Both found real defects in them.
+
+**Round 2** (2 blocking). A single verdict counted as approval — configure one reviewer
+and every round read `approved`, one model's opinion presented as though two vendors had
+agreed. Nothing failed in that scenario, so no existing failure path caught it. And the
+install-name check was wrong a second time: the fix keyed off the invocation path, which
+helps only when the doctor is launched through the symlink, while README's `npm run doctor`
+and install.sh's own printed command both run from the physical checkout.
+
+Worse, **a test written for the first fix had defined a zero-reviewer config as success**,
+entrenching the defect it was supposed to guard.
+
+**Round 3** (3 blocking). All three were real:
+
+| defect | why it mattered |
+|---|---|
+| the roster check only counted entries | two identically-configured codex entries passed it — one model reviewing twice, reported as cross-vendor agreement. Duplicate ids also overwrite each other's verdict and transcript, since both are filed by id |
+| `insufficient_verdicts` was reported as `inconclusive` | they demand opposite responses. The summary printed "0 failed" beside "a reviewer failed", and the protocol's retry rule would have re-run an expensive review of a configuration that can never work |
+| the doctor's install probe diverged from SKILL.md's | it omitted the git-toplevel candidate and ended in `basename(root) === 'board'`, which blesses any directory named board regardless of whether the agent can find it |
+
+The install check took **three attempts**. The first two both answered a slightly wrong
+question; only the third asks the one that matters — "is this checkout reachable as a skill
+named board?" — by resolving the install targets rather than inspecting the entry point.
+
+### What the reviewers themselves did, across three rounds
+
+Worth recording, because it is the strongest argument for the rules in §9 and §13:
+
+| round | codex | grok |
+|---|---|---|
+| 1 (233 KB brief) | 13m49s, 7 blocking, 6 real | **12s, $0.0138 — returned a placeholder verdict** |
+| 2 (20 KB brief) | 8m46s, 2 blocking, both real | ~10m, $0.2047, approve + 4 nits, one of which codex missed |
+| 3 (27 KB brief) | 3 blocking, all real | **$0.0054 — filed "Need full context before judging. Reading the complete prompt now." as a blocking item** |
+
+Two things follow.
+
+**One reviewer degraded in two rounds out of three, and never once failed.** No timeout, no
+error, no refusal — just an answer that had not been arrived at. Round 1's was caught by
+the verdict validation added in #20. Round 3's was not: "I need to read more first" arrives
+with a file, an issue and a why_it_matters, so it is structurally indistinguishable from a
+finding. Schema validation cannot reach that, and this is exactly why SKILL.md's iron rule
+is that a human verifies before acting on any blocking item.
+
+**The cost figures are the tell.** $0.0054 and $0.0138 against $0.2047 for the round where
+that reviewer actually worked — a factor of 15 to 40. Together with the elapsed time now
+recorded in each transcript, that is the cheapest available signal that a reviewer did not
+read the brief. Neither number appears in the verdict itself.
+
+**The other reviewer found real defects in all three rounds**, including in its own
+previous round's fixes. Cross-vendor review did not converge here — but it never once
+produced a false pass, which is the property that actually matters.
 
 ## 14. Plan review mode
 

@@ -224,7 +224,7 @@ Windows 暂不支持：doctor 的 PATH 查找已经改成跨平台的，但 SKIL
 ## 开发
 
 ```bash
-npm test        # 102 个测试，不需要 npm install
+npm test        # 109 个测试，不需要 npm install
 npm run doctor
 ```
 

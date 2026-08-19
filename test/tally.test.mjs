@@ -95,15 +95,27 @@ test('a single verdict is never approval, even with nobody failing', () => {
   // Configure one reviewer and every round used to read "approved" — one model's opinion
   // presented as though two vendors had agreed. No reviewer fails in this scenario, so
   // the existing failure paths never caught it. Found by board reviewing its own fixes.
-  const one = [ok('codex', 'approve')];
-  const t = tallyRound(one);
-  assert.equal(t.outcome, 'inconclusive');
-  assert.equal(t.failed, 0, 'nothing failed — the round is inconclusive because it was never cross-verified');
+  const t = tallyRound([ok('codex', 'approve')]);
+  assert.equal(t.outcome, 'insufficient_verdicts');
+  assert.equal(t.failed, 0, 'nothing failed — the round simply was never cross-verified');
 });
 
-test('a single request_changes verdict is also inconclusive, not changes_requested', () => {
+test('insufficient_verdicts is distinct from inconclusive', () => {
+  // They call for opposite responses: inconclusive means a reviewer failed and a retry may
+  // work, while this means the configuration can never produce a cross-checked result and
+  // retrying is pure waste. Collapsing them also printed "0 failed" next to "a reviewer
+  // failed" in the same table. Found by board reviewing the previous fix.
+  assert.equal(tallyRound([ok('codex', 'approve')]).outcome, 'insufficient_verdicts');
+  assert.equal(
+    tallyRound([ok('codex', 'approve'), dead('grok', 'timeout')]).outcome,
+    'inconclusive',
+    'an actual reviewer failure stays inconclusive',
+  );
+});
+
+test('a single request_changes verdict is insufficient too, not changes_requested', () => {
   const t = tallyRound([ok('codex', 'request_changes', [BLK])]);
-  assert.equal(t.outcome, 'inconclusive');
+  assert.equal(t.outcome, 'insufficient_verdicts');
   assert.equal(t.blocking.length, 1, 'the finding is still surfaced');
 });
 

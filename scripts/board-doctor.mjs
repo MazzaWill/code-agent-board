@@ -5,10 +5,12 @@
 // waiting. Worse, the error reads like "the model refused to answer", so people
 // conclude the mechanism is bad when they simply were not authenticated.
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { accessSync, constants, readFileSync, realpathSync } from 'node:fs';
 import { basename, delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { validateReviewerConfig } from './reviewer-config.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -114,10 +116,13 @@ export function assertModelParity(rv, probeArgs) {
 // install location and compare with ROOT, so the answer does not depend on how the doctor
 // was invoked.
 export function installedAsBoard(root = ROOT, env = process.env) {
+  // Same candidate list as SKILL.md's step 0, in the same order. If the two drift, the
+  // doctor blesses installs the agent cannot find, or warns about ones it can.
   const candidates = [
     env.BOARD_HOME,
     env.HOME ? join(env.HOME, '.claude/skills/board') : null,
     env.CLAUDE_PLUGIN_ROOT ? join(env.CLAUDE_PLUGIN_ROOT, 'skills/board') : null,
+    gitToplevel() ? join(gitToplevel(), '.claude/skills/board') : null,
     join(process.cwd(), '.claude/skills/board'),
   ].filter(Boolean);
 
@@ -128,8 +133,17 @@ export function installedAsBoard(root = ROOT, env = process.env) {
       /* candidate does not exist */
     }
   }
-  // Or it already lives in a directory literally named board (a plain, non-symlink install).
-  return basename(root) === 'board';
+
+  // No basename fallback. "The directory happens to be called board" is not the question —
+  // a board/ directory nowhere on the skill search path is not installed, and treating it
+  // as installed turns this check into an unconditional pass. Custom locations must say so
+  // through BOARD_HOME.
+  return false;
+}
+
+function gitToplevel() {
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim() : null;
 }
 
 function main() {
@@ -178,13 +192,9 @@ function main() {
   }
 
   const reviewers = cfg.reviewers ?? [];
-  if (reviewers.length < 2) {
-    // Fewer than two reviewers is not a degraded setup, it is a different product: one
-    // model reviewing alone, reported as though two vendors had cross-checked.
-    console.log(
-      `❌ only ${reviewers.length} reviewer(s) configured — board needs at least 2, from different ` +
-        'vendors, or there is no cross-verification to be had',
-    );
+  const roster = validateReviewerConfig(reviewers);
+  if (!roster.ok) {
+    console.log(`❌ ${roster.reason}`);
     bad++;
   }
 

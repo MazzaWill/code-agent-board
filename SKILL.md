@@ -159,6 +159,7 @@ The `Outcome` line decides what happens next:
 | `changes_requested` | work through the blocking items (below), round+1, back to step 2 |
 | `inconclusive` | a reviewer failed — this round **does not count**. Re-run with the same round number; if it fails twice in a row, stop and report the fault |
 | `all_failed` | stop immediately, report the fault, do not fake a debate |
+| `insufficient_verdicts` | fewer than two independent verdicts came back — the configuration cannot produce a cross-checked result. **Do not retry**; fix `config/reviewers.json` (it needs at least two reviewers, with distinct ids, from different vendors) |
 
 Still `changes_requested` at round 3 → stop and escalate (section 5).
 

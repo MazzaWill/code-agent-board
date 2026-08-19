@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { buildBrief, isDirty, repoStat } from './brief.mjs';
 import { ensureIgnored } from './git-artifacts.mjs';
 import { resolveMode } from './modes.mjs';
+import { validateReviewerConfig } from './reviewer-config.mjs';
 import { normalizeVerdict, parseCodexOutput, parseGrokOutput } from './verdict.mjs';
 import { formatSummary } from './summary.mjs';
 import { tallyRound } from './tally.mjs';
@@ -205,6 +206,14 @@ async function main() {
   if (!selected.ok) die(selected.reason);
 
   const cfg = JSON.parse(readFileSync(join(ROOT, 'config/reviewers.json'), 'utf8'));
+
+  // Reject an unusable roster before spending anything. Discovering it after the round
+  // would mean paying for reviews, reporting an ambiguous outcome, and — because the
+  // protocol treats that outcome as an infrastructure hiccup — retrying a configuration
+  // that cannot ever work.
+  const roster = validateReviewerConfig(cfg.reviewers);
+  if (!roster.ok) die(`config/reviewers.json: ${roster.reason}`);
+
   const schemaPath = join(ROOT, 'config/verdict.schema.json');
   const schemaInline = readFileSync(schemaPath, 'utf8');
 

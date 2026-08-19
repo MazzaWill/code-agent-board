@@ -20,6 +20,12 @@ export function tallyRound(results) {
   const approve = okResults.filter((r) => r.verdict === 'approve').length;
   const requestChanges = okResults.length - approve;
 
+  // Cross-verification needs at least two independent verdicts. This is a DIFFERENT
+  // outcome from inconclusive: inconclusive means a reviewer failed and retrying may help,
+  // whereas this means the configuration cannot produce a cross-checked result at all, so
+  // retrying is pure waste. Reporting it as inconclusive also produced a self-contradicting
+  // summary — "0 failed" beside "a reviewer failed". board-round now rejects such a config
+  // before spawning anything; this path remains as defence in depth.
   // Cross-verification needs at least two independent verdicts. With fewer, a single
   // model's approval would be presented as though two vendors had agreed — which is the
   // one thing this whole mechanism exists to prevent. This can happen without any
@@ -30,7 +36,7 @@ export function tallyRound(results) {
   let outcome;
   if (okResults.length === 0) outcome = 'all_failed';
   else if (failed > 0) outcome = 'inconclusive';
-  else if (okResults.length < MIN_VERDICTS) outcome = 'inconclusive';
+  else if (okResults.length < MIN_VERDICTS) outcome = 'insufficient_verdicts';
   else if (requestChanges > 0) outcome = 'changes_requested';
   else outcome = 'approved';
 

@@ -7,6 +7,8 @@ const OUTCOME_LABEL = {
   changes_requested: 'changes_requested (blocking objections raised)',
   inconclusive: 'inconclusive (a reviewer failed — this round does not count)',
   all_failed: 'all_failed (every reviewer failed)',
+  insufficient_verdicts:
+    'insufficient_verdicts (fewer than two independent verdicts — the configuration cannot produce a cross-checked result; retrying will not help)',
 };
 
 function line(ch = '─', n = 60) {
