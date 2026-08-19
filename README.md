@@ -207,6 +207,27 @@ that any identifier cited must be one the reviewer actually read — after which
 citation in the next measured run held up. **But do not assume compliance.** Verify any
 blocking item's file, function or column before acting on it.
 
+### And sometimes a reviewer does not review at all
+
+Across three rounds of board reviewing this repository, one reviewer produced a real review
+once and twice returned an answer it had not arrived at. Neither time did it fail: no
+timeout, no error, no refusal.
+
+- Round 1: `{"verdict":"request_changes","blocking":[],"one_line_summary":"placeholder"}` —
+  schema-valid, and with an empty blocking list it was counted as an **approve**. Now
+  rejected by verdict validation.
+- Round 3: `"Need full context before judging. Reading the complete prompt now."` filed as
+  a blocking item, complete with `file` and `why_it_matters`. **Structurally
+  indistinguishable from a real finding**; no schema check can reach it.
+
+The tells are cost and elapsed time: **$0.0054 and $0.0138 against $0.2047** for the round
+it actually worked — a factor of 15 to 40. Neither number appears in the verdict, so board
+now records elapsed time in every transcript header.
+
+This is the concrete reason for the rule above: a human verifies before acting. It is also
+why a failed reviewer never counts as an approve vote — but note that a *degraded* reviewer
+is not a failed one, and nothing but your own judgement separates them.
+
 ## What leaves your machine
 
 Your diff, plus the full contents of untracked files that are not gitignored, go to
@@ -273,7 +294,7 @@ handling and three tests still assume POSIX behaviour (symlinks, file modes). Us
 ## Development
 
 ```bash
-npm test        # 109 tests, no npm install needed
+npm test        # 116 tests, no npm install needed
 npm run doctor
 ```
 

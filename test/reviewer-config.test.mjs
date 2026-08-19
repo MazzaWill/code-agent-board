@@ -57,3 +57,46 @@ test('a reviewer without an id is rejected', () => {
   assert.equal(r.ok, false);
   assert.match(r.reason, /no id/);
 });
+
+// —— Found by board in round 4: the roster validator's own inputs were unvalidated.
+
+test('an id that is not a safe filename segment is rejected', () => {
+  // ids become filenames — join(dir, `${id}.json`) for the verdict and `${id}.md` for the
+  // transcript. `../../../package` resolves clean out of the artifact directory, and
+  // since codex writes its verdict through -o, it would overwrite package.json in the
+  // repository under review.
+  for (const bad of ['../../../package', 'a/b', 'a\\b', '.hidden', '.', '..', 'has space', '']) {
+    const r = validateReviewerConfig([rv(bad, 'codex'), rv('grok', 'grok')]);
+    assert.equal(r.ok, false, `id ${JSON.stringify(bad)} must be rejected`);
+  }
+});
+
+test('ordinary ids are still accepted', () => {
+  for (const good of ['codex', 'grok-4', 'claude_cli', 'x.y', 'a1']) {
+    assert.equal(validateReviewerConfig([rv(good, 'a'), rv('other', 'b')]).ok, true, good);
+  }
+});
+
+test('ids differing only in case are duplicates', () => {
+  // On macOS and Windows they are the same file, so one would silently overwrite the other.
+  const r = validateReviewerConfig([rv('codex', 'a'), rv('CODEX', 'b')]);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /duplicate/);
+});
+
+test('vendors are normalized before being compared', () => {
+  // Without normalization "openai" and "OpenAI" count as two vendors and the check does
+  // nothing — two identical reviewers would be reported as cross-vendor agreement.
+  const r = validateReviewerConfig([
+    rv('a', 'x', { vendor: 'openai' }),
+    rv('b', 'y', { vendor: '  OpenAI  ' }),
+  ]);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /same vendor/);
+});
+
+test('an empty vendor is rejected rather than counted as a distinct one', () => {
+  const r = validateReviewerConfig([rv('a', '', { vendor: '' }), rv('b', 'codex')]);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /no vendor/);
+});

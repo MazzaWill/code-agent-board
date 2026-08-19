@@ -122,3 +122,22 @@ test('a single request_changes verdict is insufficient too, not changes_requeste
 test('two verdicts remain the normal path', () => {
   assert.equal(tallyRound([ok('codex', 'approve'), ok('grok', 'approve')]).outcome, 'approved');
 });
+
+test('insufficient_verdicts aborts — it must never open another round', () => {
+  // Adding the outcome without teaching the state machine about it made it fall through
+  // to the changes_requested branch, i.e. retry a configuration that cannot ever work.
+  // Found by board in round 4.
+  const s = advanceState({ round: 1, consecutiveInconclusive: 0 }, 'insufficient_verdicts');
+  assert.equal(s.action, 'abort');
+  assert.equal(s.status, 'aborted');
+  assert.match(s.reason, /config/);
+});
+
+test('an unknown outcome throws instead of defaulting to another round', () => {
+  // Defaulting is how the previous bug hid: anything unrecognised silently became
+  // "open another round".
+  assert.throws(
+    () => advanceState({ round: 1, consecutiveInconclusive: 0 }, 'bogus'),
+    /unknown outcome/,
+  );
+});

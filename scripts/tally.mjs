@@ -63,6 +63,17 @@ export function advanceState(state, outcome, opts = {}) {
       reason: 'every reviewer failed this round',
     };
   }
+  if (outcome === 'insufficient_verdicts') {
+    // Deliberately NOT a retry. This outcome means the roster cannot produce a
+    // cross-checked result, so running it again just spends money to reach the same
+    // place. Falling through to the changes_requested branch — which is what happened
+    // when this outcome was added without updating the state machine — turned it into
+    // exactly that retry loop.
+    return {
+      round, consecutiveInconclusive, status: 'aborted', action: 'abort',
+      reason: 'fewer than two independent verdicts; fix config/reviewers.json rather than retrying',
+    };
+  }
   if (outcome === 'inconclusive') {
     const c = consecutiveInconclusive + 1;
     if (c >= maxInconclusive) {
@@ -74,7 +85,12 @@ export function advanceState(state, outcome, opts = {}) {
     return { round, consecutiveInconclusive: c, status: 'running', action: 'retry' };
   }
 
-  // changes_requested
+  // Anything not handled above is a bug, not a changes_requested. Falling through by
+  // default is how insufficient_verdicts silently became "open another round".
+  if (outcome !== 'changes_requested') {
+    throw new Error(`advanceState: unknown outcome ${JSON.stringify(outcome)}`);
+  }
+
   if (round >= maxRounds) {
     return { round, consecutiveInconclusive: 0, status: 'escalated', action: 'escalate' };
   }

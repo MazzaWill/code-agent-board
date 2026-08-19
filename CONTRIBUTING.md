@@ -42,8 +42,10 @@ If your change touches a user-visible string, update its assertion in the same c
 several strings are asserted by name, and splitting them across commits produces a red CI
 run for a reason unrelated to your change.
 
-**Run board on your own diff.** This project reviews itself; that is the whole point, and
-it found 11 real defects doing so. If board raises a blocking item you disagree with,
+**Run board on your own diff.** This project reviews itself; that is the whole point. It
+found 11 real defects in its own implementation, and 11 more across three rounds of
+reviewing this repository's extraction — each round finding real problems in the previous
+round's repairs. If board raises a blocking item you disagree with,
 decline it *with a reason* — that is a legitimate outcome, and worth mentioning in the PR.
 
 ## Adding a reviewer

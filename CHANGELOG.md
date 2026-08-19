@@ -10,7 +10,7 @@ Initial release, extracted from the author's private skills repository.
 - Two reviewers (codex, grok) running in parallel under hard read-only sandboxes
 - Convergence protocol: blocking / non_blocking split, reasoned refusal, three-round
   escalation, and failure never counting as approval
-- 109 offline tests, zero third-party dependencies
+- 116 offline tests, zero third-party dependencies
 - `board-doctor` environment check
 
 ### Fixed while extracting for release
@@ -36,33 +36,51 @@ Initial release, extracted from the author's private skills repository.
 - `--intent` / `--contested` pointing inside the repository under review is now rejected;
   such a file becomes untracked and ends up inside its own brief.
 
-### Fixed after board reviewed the extraction itself
+### Fixed after board reviewed itself
 
-Before release, board was run on the extraction diff. It raised 7 blocking items; 6 were
-real and are fixed here (the seventh was an artifact of the dogfood setup).
+Before release, board was run on the extraction — and then on each round's fixes. Every
+round found real defects in the previous round's repairs. Fourteen in total across four rounds, all fixed here.
+DESIGN §13 carries the reasoning; the ones that would have bitten users:
 
-- **A structurally valid but empty verdict counted as an approve vote.** Demonstrated live
-  in the same round: a reviewer spent one turn and returned
-  `{"verdict":"request_changes","blocking":[],"one_line_summary":"placeholder"}`, which
-  parsed cleanly and — with an empty blocking list — resolved to approve. Verdicts are now
-  validated for shape and internal consistency; a contradiction is always resolved toward
-  caution, so "request_changes with nothing listed" is a parse_error.
-- **`board-doctor.mjs` did nothing and exited 0 when reached through a symlink** — that
-  is, for every user who installed with `install.sh`. It compared `process.argv[1]` with
-  `import.meta.url` without resolving symlinks. Both sides are now realpath'd, and there
-  is a test that invokes the doctor through a symlinked install.
-- **Unknown flags were ignored**, so `--mdoe plan` silently reviewed a plan with the code
-  prompt; a malformed `--round` also bypassed the requirement to supply `--contested`.
-  Parsing is now strict about unknown, repeated and value-less flags, and validates round.
-- **The secret-filename pattern did not match `.envrc`, `secrets.env` or `secrets.txt`**
-  while SECURITY.md promised `.env*`.
-- **SECURITY.md claimed excluded files "are not sent".** That was too strong: the
-  reviewers are agents with the repository as their working directory and prompts that
-  encourage reading files, so a file board declines to attach can still be opened by a
-  reviewer. Documented honestly, in both languages.
-- **SKILL.md relied on `$TMP` surviving between commands** — two paragraphs after telling
-  the agent not to rely on shell state — and used fixed filenames, so concurrent meetings
-  could overwrite each other's context.
+**Silent passes.** A structurally valid but empty verdict counted as an approve vote —
+demonstrated live in the round that reported it, when a reviewer spent one turn and
+returned `{"verdict":"request_changes","blocking":[],"one_line_summary":"placeholder"}`.
+And a single verdict counted as approval, so a one-reviewer configuration reported every
+round as `approved`: one model's opinion presented as though two vendors had agreed.
+Verdicts are now validated for shape and internal consistency, contradictions always
+resolve toward caution, and a round needs at least two independent verdicts to pass.
+
+**Inputs the validators themselves did not validate.** `advanceState` did not know the
+outcome added alongside it and fell through to "open another round", turning "this roster
+can never work" into a retry loop. Vendor values were compared without normalization, so
+`openai` and `OpenAI` counted as two vendors. And reviewer ids — which become artifact
+filenames — were only checked for exact duplicates: `../../../package` resolves out of the
+artifact directory, and codex writes its verdict there via `-o`, so it would have
+overwritten `package.json` in the repository under review.
+
+**Rosters that were not really cross-vendor.** "At least two reviewers" was enforced as an
+array length, so two identically-configured codex entries passed — one model reviewing
+twice. Duplicate ids also overwrote each other's verdict and transcript, since both are
+filed by id. Now validated in one shared place, before anything is spawned.
+
+**A diagnostic tool that silently succeeded.** `board-doctor` did nothing and exited 0 when
+reached through a symlink — that is, for everyone who installed with `install.sh`. The
+install-name check then took three attempts to get right; the first two both warned users
+who had followed the README exactly.
+
+**Silent fallbacks.** Unknown flags were ignored, so `--mdoe plan` reviewed a plan with the
+code prompt and very likely approved it. A malformed `--round` bypassed the requirement to
+supply `--contested`.
+
+**Secrets.** The secret-filename pattern missed `.envrc`, `secrets.env` and `secrets.txt`
+while SECURITY.md promised `.env*`. And SECURITY.md claimed excluded files "are not sent",
+which was too strong — the reviewers are agents with the repository as their working
+directory and prompts that encourage reading files, so a file board declines to attach can
+still be opened by a reviewer. Now documented honestly in both languages.
+
+**Honesty in the output.** The summary hardcoded `{codex,grok}.md` for transcript paths and
+presented one CLI's cost as the round's total. Both derive from the actual results now, and
+the cost line names who reported it.
 
 ### Known limitations
 
@@ -70,3 +88,14 @@ real and are fixed here (the seventh was an artifact of the dogfood setup).
 - The round loop is driven by the host agent following SKILL.md. `advanceState` in
   `tally.mjs` is the tested reference implementation of those rules but is not yet wired in.
 - codex does not report cost, so the reported figure is always partial
+- **A reviewer can degrade rather than fail, and no transport-level check catches it.**
+  Measured across three rounds of reviewing this repository: one reviewer produced a real
+  review once, and twice returned an answer it had not arrived at — first an empty verdict
+  (now rejected by validation), then "I need to read more context first" filed as a blocking
+  item, complete with file, issue and why_it_matters. That second form is structurally
+  indistinguishable from a finding and schema validation cannot reach it. The tells are
+  cost and elapsed time: $0.0054 and $0.0138 against $0.2047 for the round it worked.
+  Elapsed time is now recorded in every transcript header. This is why SKILL.md's iron rule
+  is that a human verifies before acting on any blocking item.
+- Reviewing a large diff is slow: 3,468 lines took one reviewer 13m49s, 71 seconds short of
+  the default 900-second timeout. Raise `timeoutMs` if you routinely review changes that big.

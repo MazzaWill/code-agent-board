@@ -197,6 +197,7 @@ code-agent-board/
 │  ├─ tally.mjs                vote counting and the round state machine
 │  ├─ summary.mjs              summary-table formatting
 │  ├─ modes.mjs                code / plan modes × language
+│  ├─ reviewer-config.mjs     roster validation, shared by doctor and board-round
 │  └─ board-doctor.mjs         environment self-check
 ├─ prompts/
 │  ├─ code-reviewer.md         reviewing code (default, English)
@@ -205,11 +206,12 @@ code-agent-board/
 ├─ config/
 │  ├─ reviewers.json
 │  └─ verdict.schema.json
-└─ test/                       109 tests, all of them under `npm test`
+└─ test/                       116 tests, all of them under `npm test`
    ├─ brief.test.mjs           real git repositories (symlinks, huge files, renames, secrets)
    ├─ git-artifacts.test.mjs   real git repository + real linked worktree
    ├─ modes.test.mjs           (mode × language) matrix over every prompt invariant
    ├─ doctor.test.mjs          probe derivation, model parity, "unverifiable must fail"
+   ├─ reviewer-config.test.mjs count, distinct ids, and at least two vendors
    ├─ args.test.mjs            strict flag parsing; a typo in a flag NAME must fail loudly
    ├─ verdict.test.mjs
    ├─ tally.test.mjs
@@ -507,7 +509,23 @@ The install check took **three attempts**. The first two both answered a slightl
 question; only the third asks the one that matters — "is this checkout reachable as a skill
 named board?" — by resolving the install targets rather than inspecting the entry point.
 
-### What the reviewers themselves did, across three rounds
+**Round 4** (1 approve, 3 blocking). All three were real, and all three were about the
+validator added in round 3 failing to validate its own inputs:
+
+| defect | why it mattered |
+|---|---|
+| `advanceState` did not know the new `insufficient_verdicts` outcome | it fell through to the `changes_requested` branch and returned `next_round` — turning "this roster can never work, stop and fix it" into a retry loop |
+| vendor values were compared without normalization | `openai` and `OpenAI` counted as two vendors, so two identical reviewers passed the cross-vendor check and two approvals would have been reported as agreement |
+| ids were checked for exact duplicates, then used as filenames | `../../../package` resolves clean out of the artifact directory, and codex writes its verdict there via `-o` — it would overwrite `package.json` in the repository under review. Ids differing only in case are also the same file on macOS |
+
+This is where the dogfood stopped. Not because the reviewers ran out of findings — they
+did not — but because the findings had changed character: rounds 1-3 turned up defects in
+what the code *did*, round 4 turned up defects in what it *accepted as input*. Both are
+worth fixing, and all of them were; but the second kind has no natural end, and the other
+reviewer had by then approved the round, calling the remainder "spec/docs/test drift, not
+a bug users will hit". Continuing would have been ritual rather than judgement.
+
+### What the reviewers themselves did, across four rounds
 
 Worth recording, because it is the strongest argument for the rules in §9 and §13:
 
@@ -516,6 +534,7 @@ Worth recording, because it is the strongest argument for the rules in §9 and �
 | 1 (233 KB brief) | 13m49s, 7 blocking, 6 real | **12s, $0.0138 — returned a placeholder verdict** |
 | 2 (20 KB brief) | 8m46s, 2 blocking, both real | ~10m, $0.2047, approve + 4 nits, one of which codex missed |
 | 3 (27 KB brief) | 3 blocking, all real | **$0.0054 — filed "Need full context before judging. Reading the complete prompt now." as a blocking item** |
+| 4 (31 KB brief) | 3 blocking, all real | $0.2162, approve + 3 nits — correctly identified which leftovers were drift rather than bugs |
 
 Two things follow.
 
@@ -531,9 +550,15 @@ that reviewer actually worked — a factor of 15 to 40. Together with the elapse
 recorded in each transcript, that is the cheapest available signal that a reviewer did not
 read the brief. Neither number appears in the verdict itself.
 
-**The other reviewer found real defects in all three rounds**, including in its own
-previous round's fixes. Cross-vendor review did not converge here — but it never once
-produced a false pass, which is the property that actually matters.
+**The other reviewer found real defects in all four rounds**, including in every previous
+round's fixes. Fourteen in total across the four rounds, every one verified by hand before
+being accepted.
+
+Cross-vendor review never converged on a unanimous approval here. But it never once
+produced a false pass either — and the two reviewers were complementary in a way a single
+model could not be: one kept finding real defects, the other correctly judged, in the final
+round, which leftovers were drift rather than bugs. That judgement is what let the process
+stop somewhere defensible instead of running forever.
 
 ## 14. Plan review mode
 

@@ -171,6 +171,7 @@ code-agent-board/
 │  ├─ tally.mjs                计票与轮次状态机
 │  ├─ summary.mjs              汇总表格式化
 │  ├─ modes.mjs                code / plan 两种评审模式
+│  ├─ reviewer-config.mjs     评审员名单校验，doctor 与 board-round 共用
 │  └─ board-doctor.mjs         环境自检
 ├─ prompts/
 │  ├─ code-reviewer.md         审代码（默认，英文）
@@ -179,11 +180,12 @@ code-agent-board/
 ├─ config/
 │  ├─ reviewers.json
 │  └─ verdict.schema.json
-└─ test/                       109 个测试，`npm test` 一把跑完
+└─ test/                       116 个测试，`npm test` 一把跑完
    ├─ brief.test.mjs           用真 git 仓库（含 symlink、大文件、重命名、密钥文件）
    ├─ git-artifacts.test.mjs   用真 git 仓库 + 真 worktree
    ├─ modes.test.mjs           (模式 × 语言) 矩阵，断言每份 prompt 都带 {{BRIEF}} 和两条约束
    ├─ doctor.test.mjs          探针派生与模型一致性，含「不可验证必须失败」
+   ├─ reviewer-config.test.mjs 条目数、id 唯一性、至少两个厂商
    ├─ args.test.mjs            严格参数解析；参数名拼错必须大声失败
    ├─ verdict.test.mjs
    ├─ tally.test.mjs
@@ -442,7 +444,21 @@ schema 合法所以解析通过，而 blocking 为空又让 `normalizeVerdict` �
 安装检查一共改了**三次**。前两次都在回答一个略微错误的问题，只有第三次问对了——「这个
 checkout 能否作为名为 board 的 skill 被找到？」——办法是解析安装目标，而不是打量入口路径。
 
-### 三轮下来，两位评审员各自的表现
+**第 4 轮**（1 approve，3 条 blocking）。三条全是真的，而且全都是「第 3 轮加的那个校验器
+自己不校验输入」：
+
+| 缺陷 | 为什么要紧 |
+|---|---|
+| `advanceState` 不认识新加的 `insufficient_verdicts` | 它落进了 `changes_requested` 分支返回 `next_round`——把「这套名单永远不可能成立，停下来改配置」变成了重试循环 |
+| vendor 值比较前不做规范化 | `openai` 和 `OpenAI` 被算成两个厂商，两份一模一样的评审员就能通过跨厂商检查，两张 approve 会被报成一致 |
+| id 只查完全重复，却被直接当文件名用 | `../../../package` 会解析到产物目录之外，而 codex 正是用 `-o` 往那里写裁决——它会覆盖被审仓库的 `package.json`。仅大小写不同的 id 在 macOS 上也是同一个文件 |
+
+dogfood 到这里停止。不是因为评审员挖不动了——它们还挖得动——而是因为发现的性质变了：
+第 1-3 轮找的是代码**做了什么**的缺陷，第 4 轮找的是它**接受什么输入**的缺陷。两类都值得
+修，也都修了；但后一类没有自然终点，而另一位评审员此时已经 approve 这一轮，并把剩下的判
+为「规格/文档/测试的漂移，不是用户会撞到的 bug」。再跑下去就是仪式而不是判断了。
+
+### 四轮下来，两位评审员各自的表现
 
 值得记录，因为这是 §9 和 §13 那些规则最有力的论据：
 
@@ -451,6 +467,7 @@ checkout 能否作为名为 board 的 skill 被找到？」——办法是解析
 | 1（233 KB brief） | 13分49秒，7 条 blocking，6 条属实 | **12 秒，$0.0138——返回占位裁决** |
 | 2（20 KB brief） | 8分46秒，2 条 blocking，全属实 | 约 10 分钟，$0.2047，approve + 4 条 nit，其中一条 codex 没看到 |
 | 3（27 KB brief） | 3 条 blocking，全属实 | **$0.0054——把「需要先读完整上下文再判断」当成一条 blocking 交了上来** |
+| 4（31 KB brief） | 3 条 blocking，全属实 | $0.2162，approve + 3 条 nit——准确判断出剩下哪些是漂移而非 bug |
 
 两条推论。
 
@@ -464,8 +481,12 @@ schema 校验够不到这一层——而这正是 SKILL.md 那条铁律（采纳
 加上现在每份原文头部记录的耗时，这是判断「评审员没读 brief」最便宜的信号。这两个数字都
 不出现在裁决本身里。
 
-**另一位评审员三轮都找出了真缺陷**，包括自己上一轮修复里的。跨厂商评审在这里没有收敛
-——但它一次都没有产生过虚假通过，而后者才是真正要紧的性质。
+**另一位评审员四轮都找出了真缺陷**，包括每一轮修复里的。四轮共 14 条，每条都经人工核实
+后才采纳。
+
+跨厂商评审在这里始终没有收敛到全票通过。但它一次都没有产生过虚假通过——而且两位评审员
+是互补的，这是单个模型做不到的：一位不停找出真缺陷，另一位在最后一轮准确判断出剩下哪些
+只是漂移。正是后者这个判断，让这个过程能停在一个站得住脚的地方，而不是无限跑下去。
 
 ## 14. 方案评审模式
 
